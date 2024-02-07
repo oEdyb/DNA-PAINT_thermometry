@@ -44,7 +44,8 @@ def run_analysis(selected_file, working_folder, step, params):
     recursive_flag = params.get('recursive', 0)
     rectangles_flag = params.get('rectangle', 0)
 
-    if step[0]:
+
+    if step[0] == 'True':
         # run step
         step1.split_hdf5(selected_file, working_folder, recursive_flag, rectangles_flag)
     else:
@@ -54,7 +55,7 @@ def run_analysis(selected_file, working_folder, step, params):
     
     # folder and file management
     step2_working_folder = os.path.join(working_folder, 'split_data')
-    if step[1]:
+    if step[1] == 'True':
         # run step
         step2.process_dat_files(number_of_frames, exp_time, step2_working_folder, \
                               docking_sites, NP_flag, pixel_size, pick_size, \
@@ -66,7 +67,7 @@ def run_analysis(selected_file, working_folder, step, params):
         
     # folder and file management
     step3_working_folder = os.path.join(step2_working_folder, 'kinetics_data')
-    if step[2]:
+    if step[2] == 'True':
         # run step
         list_of_files_step3 = os.listdir(step3_working_folder)
         all_traces_filename = [f for f in list_of_files_step3 if re.search('^TRACES_ALL_',f)][0]
@@ -80,7 +81,7 @@ def run_analysis(selected_file, working_folder, step, params):
         
     # folder and file management
     step4_working_folder = step3_working_folder
-    if step[3]:
+    if step[3] == 'True':
         # run step
         step4.estimate_binding_unbinding_times(exp_time, rango, step4_working_folder,
                                         initial_params, likelihood_err_param,
@@ -94,27 +95,13 @@ def run_analysis(selected_file, working_folder, step, params):
     
     return
 
-#####################################################################
-#####################################################################
-#####################################################################
 
-# if __name__ == '__main__':
-    # start_time = time.time()
-    # # load and open folder and file
-    # base_folder = "C:\\Users\\olled\\Documents\\DNA-PAINT\\Data\\single_channel_DNA-PAINT_example\\Week_4\\All_DNA_Origami\\clean_picks\\12_picks"
-    # root = tk.Tk()
-    # selected_file = fd.askopenfilename(initialdir = base_folder, \
-    #                                    filetypes=(("", "*.hdf5") , ("", "*.")))
-    # root.withdraw()
-    # working_folder = os.path.dirname(selected_file)
-    #
-    # print('\nProcessing %s' % working_folder)
 if __name__ == '__main__':
     start_time = time.time()
     parser = argparse.ArgumentParser(description='Run analysis on HDF5 file.')
     parser.add_argument('--selected_file', type=str, required=True, help='Path to selected HDF5 file')
     parser.add_argument('--working_folder', type=str, required=True, help='Working folder')
-    parser.add_argument('--step', type=bool, nargs=4, required=True,
+    parser.add_argument('--step', type=str, nargs=4, required=True,
                         help='List of steps to execute (1 or 0)')
     parser.add_argument('--params', type=str, required=True, help='Parameters')
 
