@@ -28,7 +28,7 @@ def run_analysis(selected_file, working_folder, step, params):
     exp_time = params.get('exposure_time', 0)
     docking_sites = params.get('docking_sites', 0)
     NP_flag = params.get('checkNP', 0)
-    pixel_size = params.get('pixel_size', 0)
+    pixel_size = params.get('pixel_size', 0)*1e-3
     pick_size = params.get('pick_size', 0)
     radius_of_pick_to_average = params.get('size_to_average', 0)
     th = params.get('th', 0)
@@ -43,11 +43,42 @@ def run_analysis(selected_file, working_folder, step, params):
     hyper_exponential_flag = params.get('checkHyperExponential', 0)
     recursive_flag = params.get('recursive', 0)
     rectangles_flag = params.get('rectangle', 0)
+    verbose_flag = params.get('verbose', 0)
+    lpx_filter = params.get('lpx_filter', 0)
+    lpy_filter = params.get('lpy_filter', 0)
+
+    print("Analysis Parameters:")
+    print(f"Selected File: {selected_file}")
+    print(f"Working Folder: {working_folder}")
+    print(f"Step: {step}")
+    print(f"Verbose: {verbose_flag}")
+    print(f"lpy filter: {lpx_filter}")
+    print(f"lpx filter: {lpy_filter}")
+    print(f"Number of Frames: {number_of_frames}")
+    print(f"Exposure Time: {exp_time}")
+    print(f"Docking Sites: {docking_sites}")
+    print(f"NP Flag: {NP_flag}")
+    print(f"Pixel Size: {pixel_size}")
+    print(f"Pick Size: {pick_size}")
+    print(f"Radius to Average: {radius_of_pick_to_average}")
+    print(f"Initial threshold: {th}")
+    print(f"Plot Flag: {plot_flag}")
+    print(f"Photons Threshold: {photons_threshold}")
+    print(f"Background Level: {background_level}")
+    print(f"Mask Level: {mask_level}")
+    print(f"Range: {rango}")
+    print(f"Initial Parameters: {initial_params}")
+    print(f"Likelihood Error Parameter: {likelihood_err_param}")
+    print(f"Optimization Display Flag: {opt_display_flag}")
+    print(f"Hyper Exponential Flag: {hyper_exponential_flag}")
+    print(f"Recursive Flag: {recursive_flag}")
+    print(f"Rectangles Flag: {rectangles_flag}")
 
 
     if step[0] == 'True':
         # run step
-        step1.split_hdf5(selected_file, working_folder, recursive_flag, rectangles_flag)
+        step1.split_hdf5(selected_file, working_folder, recursive_flag, rectangles_flag,
+                         lpx_filter, lpy_filter, verbose_flag)
     else:
         print('\nSTEP 1 was not executed.')
         
@@ -59,7 +90,7 @@ def run_analysis(selected_file, working_folder, step, params):
         # run step
         step2.process_dat_files(number_of_frames, exp_time, step2_working_folder, \
                               docking_sites, NP_flag, pixel_size, pick_size, \
-                              radius_of_pick_to_average, th, plot_flag)
+                              radius_of_pick_to_average, th, plot_flag, verbose_flag)
     else:
         print('\nSTEP 2 was not executed.')
         
@@ -73,7 +104,7 @@ def run_analysis(selected_file, working_folder, step, params):
         all_traces_filename = [f for f in list_of_files_step3 if re.search('^TRACES_ALL_',f)][0]
         step3.calculate_kinetics(exp_time, photons_threshold, background_level, \
                                  step3_working_folder, \
-                                 all_traces_filename, mask_level)
+                                 all_traces_filename, mask_level, verbose_flag)
     else:
         print('\nSTEP 3 was not executed.')
     
@@ -85,7 +116,7 @@ def run_analysis(selected_file, working_folder, step, params):
         # run step
         step4.estimate_binding_unbinding_times(exp_time, rango, step4_working_folder,
                                         initial_params, likelihood_err_param,
-                                        opt_display_flag, hyper_exponential_flag)
+                                        opt_display_flag, hyper_exponential_flag, verbose_flag)
     else:
         print('\nSTEP 4 was not executed.')
     

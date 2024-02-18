@@ -17,7 +17,8 @@ plt.close("all")
 
 ##############################################################################
 
-def calculate_kinetics(exp_time, photons_threshold, background_level, folder, filename, mask_level):
+def calculate_kinetics(exp_time, photons_threshold, background_level, folder, filename, mask_level,
+                       verbose_flag):
     # exp_time in ms
     print('\nStarting STEP 3.')
 
@@ -36,10 +37,11 @@ def calculate_kinetics(exp_time, photons_threshold, background_level, folder, fi
     # calculate binding times
     for i in range(number_of_traces):
     # for i in range(1):
+        # For every single peak (docking sites * picks), get their trace through all frames.
         trace = traces[:,i]
         [ton, toff, binary, tstart, SNR, SBR] = calculate_tau_on_times(trace, photons_threshold, \
                                                                   background_level, \
-                                                                  exp_time, mask_level)     
+                                                                  exp_time, mask_level, verbose_flag)
         tons = np.append(tons, ton)
         toffs = np.append(toffs, toff)
         tstarts = np.append(tstarts, tstart)
@@ -50,8 +52,11 @@ def calculate_kinetics(exp_time, photons_threshold, background_level, folder, fi
     tons = np.trim_zeros(tons)
     toffs = np.trim_zeros(toffs) 
     SNR_all = np.trim_zeros(SNR_all) 
-    SBR_all = np.trim_zeros(SBR_all) 
-     
+    SBR_all = np.trim_zeros(SBR_all)
+
+
+
+
     # save data
     
     t_on_filename = os.path.join(folder, 't_on_' + filename[:-4]+'.dat')
@@ -64,6 +69,8 @@ def calculate_kinetics(exp_time, photons_threshold, background_level, folder, fi
     np.savetxt(t_start_filename, tstarts, fmt = '%.3f')
     np.savetxt(snr_filename, SNR_all, fmt = '%.3f')
     np.savetxt(sbr_filename, SBR_all, fmt = '%.3f')
+
+
     
     print('\nt_on, t_off, t_start, SNR, and SBR data saved.')
     

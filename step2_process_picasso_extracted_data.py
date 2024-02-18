@@ -22,7 +22,7 @@ As input it uses:
     - pixel size of the original video
     - size of the pick you used in picasso analysis pipeline
     - desired radius of analysis to average localization position
-    - number of dokcing sites you are looking foor (defined by origami design)
+    - number of docking sites you are looking for (defined by origami design)
     
 Outputs are:
     - plots per pick (scatter plot of locs, fine and coarse 2D histograms,
@@ -36,16 +36,20 @@ Warning: the program is coded to follow filename convention of the script
 "extract_and_save_data_from_hdf5_picasso_files.py".
 
 """
+import os
+os.environ["OMP_NUM_THREADS"] = '2'
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib_scalebar.scalebar import ScaleBar
 from matplotlib.patches import Circle as plot_circle
 import tkinter as tk
 import tkinter.filedialog as fd
-import os
 import re
 from auxiliary_functions import detect_peaks, distance, fit_linear, \
     perpendicular_distance, manage_save_directory
+from sklearn.mixture import GaussianMixture
+import time
+from auxiliary_functions_gaussian import plot_gaussian_2d
     
 plt.ioff()
 plt.close("all")
@@ -56,7 +60,7 @@ bkg_color = cmap(0)
 
 def process_dat_files(number_of_frames, exp_time, working_folder,
                       docking_sites, NP_flag, pixel_size, pick_size, 
-                      radius_of_pick_to_average, th, plot_flag):
+                      radius_of_pick_to_average, th, plot_flag, verbose_flag):
     
     print('\nStarting STEP 2.')
     
@@ -73,6 +77,7 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
     traces_per_pick_folder = manage_save_directory(per_pick_folder, 'traces')
     
     kinetics_folder = manage_save_directory(working_folder, 'kinetics_data')
+    gaussian_folder = manage_save_directory(kinetics_folder, 'gaussian_data')
 
     # list files
     list_of_files = os.listdir(working_folder)
@@ -145,6 +150,9 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
     frame_concat = np.array([])
     positions_concat_NP = np.array([])
     positions_concat_origami = np.array([])
+    gmm_stds = []
+    gmm_stds_x = np.array([])
+    gmm_stds_y = np.array([])
     all_traces = np.zeros(number_of_frames)
     
     # set number of bins for FINE histograming 
@@ -159,7 +167,9 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
     # data assignment per pick
     for i in range(total_number_of_picks):
         pick_id = pick_number[i]
-        print('\n---------- Pick number %d of %d\n' % (i+1, total_number_of_picks))
+        if verbose_flag:
+            print('\n---------- Pick number %d of %d\n' % (i+1, total_number_of_picks))
+
         index_picked = np.where(pick_list == pick_id)
         # for origami
         frame_of_picked = frame[index_picked]
@@ -221,8 +231,9 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
                 # this MAX value is arbitrary
                 break
         if docking_sites != 1:
-            print('threshold_COARSE reached', threshold_COARSE)
-            print(total_peaks_found, 'total peaks found\n') 
+            if verbose_flag:
+                print('threshold_COARSE reached', threshold_COARSE)
+                print(total_peaks_found, 'total peaks found\n')
         if total_peaks_found == 0:
             peaks_flag = False
         else:
@@ -235,16 +246,18 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
         cm_std_dev_binding_sites_y = np.array([])
         # array where traces are going to be saved
         all_traces_per_pick = np.zeros(number_of_frames)
+        inv_cov_init = []
         for j in range(total_peaks_found):
             if docking_sites != 1:
-                print('Binding site %d of %d' % (j+1, total_peaks_found))
+                if verbose_flag:
+                    print('Binding site %d of %d' % (j+1, total_peaks_found))
             index_x_peak = index_peaks[1][j] # first element of the tuple are rows
             index_y_peak = index_peaks[0][j] # second element of the tuple are columns
             x_peak = x_hist_COARSE_centers[index_x_peak]
             y_peak = y_hist_COARSE_centers[index_y_peak]
-            # grab all locs inside the selected circle 
+            # grab all locs inside the selected circle,
             # circle = selected radius around the (x,y) of the detected peak
-            # 1) calculate distance of all locs with respecto to the (x,y) of the peak
+            # 1) calculate distance of all locs with respect to the (x,y) of the peak
             d = distance(x_position_of_picked, y_position_of_picked, x_peak, y_peak)
             # 2) filter by the radius
             index_inside_radius = np.where(d < analysis_radius)
@@ -274,6 +287,9 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
             all_traces_per_pick = np.vstack([all_traces_per_pick, trace])
             # compile all traces of the image in one array
             all_traces = np.vstack([all_traces, trace])
+
+            # First guess of inverse of cov matrix for GMM
+            inv_cov_init.append(np.linalg.inv(np.cov(np.array([x_position_of_picked_filtered, y_position_of_picked_filtered]))))
         # delete first fake and empty trace (needed to make the proper array)
         all_traces_per_pick = np.delete(all_traces, 0, axis = 0)
         all_traces_per_pick = all_traces_per_pick.T
@@ -305,8 +321,20 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
             distance_to_NP = perpendicular_distance(slope, intercept, 
                                                     x_avg_NP, y_avg_NP)
             distance_to_NP_nm = distance_to_NP*1e3
-            # print('Perpendicular distance to NP: %.1f nm' % distance_to_NP_nm) 
-        
+            # print('Perpendicular distance to NP: %.1f nm' % distance_to_NP_nm)
+        # TODO: Fix good distance value or add as parameter.
+        perpendicular_dist_of_picked = perpendicular_distance(slope, intercept, x_position_of_picked, y_position_of_picked)
+        # Filtering the localizations based on the perpendicular distance from the fitted line.
+        # Relax the distance a little when Rsquared is large.
+        filter_dist = 40e-3/Rsquared  # Arbitrary at the moment.
+        x_filtered_perpendicular = x_position_of_picked[perpendicular_dist_of_picked < filter_dist]
+        y_filtered_perpendicular = y_position_of_picked[perpendicular_dist_of_picked < filter_dist]
+
+        new_filename = 'xy_perpendicular_filtered_' + str(i) + '.dat'
+        new_filepath = os.path.join(gaussian_folder, new_filename)
+        np.savetxt(new_filepath, np.array([x_filtered_perpendicular, y_filtered_perpendicular]).T)
+
+
         # calculate relative distances between all points
         # ------------------ in nanometers -----------------------
         # allocate: total size = number of detected peaks + 1 for NP
@@ -323,6 +351,7 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
             matrix_std_dev[0, 0] = max(x_std_dev_NP, y_std_dev_NP)*1e3
             positions_concat_NP = np.append(positions_concat_NP, distance_between_locs_CM)
         # calcualte the rest of the rows of the matrix distance
+        peak_distances = np.array([])
         for j in range(total_peaks_found):
             x_binding_row = cm_binding_sites_x[j]
             y_binding_row = cm_binding_sites_y[j]
@@ -335,7 +364,60 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
                                                   x_binding_row, y_binding_row)*1e3
                 matrix_distance[j + 1, k + 1] = distance_between_locs_CM
                 matrix_distance[k + 1, j + 1] = distance_between_locs_CM
+                peak_distances = np.append(peak_distances, distance_between_locs_CM)
                 positions_concat_origami = np.append(positions_concat_origami, distance_between_locs_CM)
+
+        # Assigning peak labels using the distances between the peaks.
+        peak_mean_distance = np.zeros([total_peaks_found])
+        for l in range(1, total_peaks_found+1):
+            peak_mean_distance[l-1] = np.mean(matrix_distance[l, :])
+        ascending_index = peak_mean_distance.argsort()
+        ranks = ascending_index.argsort()
+
+        # TODO: Maybe n_init is more robust? But then we would need to change the way the stds are labeled for each peak.
+        # TODO: Return sx and sy relative the fitted line.
+        # TODO: Make the algorithm guess near the fitted line?
+
+        try:
+            # Fitting the GMM.
+            start_time = time.time()
+            x_filtered, y_filtered = x_filtered_perpendicular, y_filtered_perpendicular
+
+            # gmm = GaussianMixture(n_components=3, covariance_type='full', means_init=np.array([cm_binding_sites_x, cm_binding_sites_y]).T, max_iter=100)
+            gmm = GaussianMixture(n_components=3, covariance_type='full',
+                                  n_init=10, max_iter=100, precisions_init=inv_cov_init)
+            gmm.fit(X=np.array([x_filtered, y_filtered]).T)
+
+            # Labeling the standard deviations according to ascending distances.
+            sx_labeled = gmm.covariances_[:, 0, 0][ranks]
+            sy_labeled = gmm.covariances_[:, 1, 1][ranks]
+            gmm_stds.append([np.append(sx_labeled.reshape(-1, 1), sy_labeled.reshape(-1, 1), axis=1)])
+            gmm_stds_x = np.append(gmm_stds_x, gmm.covariances_[:, 0, 0][ranks])
+            gmm_stds_y = np.append(gmm_stds_y, gmm.covariances_[:, 1, 1][ranks])
+
+            # Plotting
+            aux_folder = manage_save_directory(figures_per_pick_folder, 'GMM')
+            figure_name = 'GMM_%02d' % i
+            figure_path = os.path.join(aux_folder, '%s.png' % figure_name)
+            if plot_flag:
+                fig, ax = plt.subplots(1, 1)
+                ax.scatter(x_filtered, y_filtered, s=0.8)
+                ax.scatter(gmm.means_[:, 0], gmm.means_[:, 1], s=10, c='r')
+                for m in range(len(gmm.means_[:, 1])):
+                    rho = gmm.covariances_[m][0, 1] / (np.sqrt(gmm.covariances_[m][0, 0]) * np.sqrt(gmm.covariances_[m][1, 1]))
+                    plot_gaussian_2d([min(x_filtered), max(x_filtered)], [min(y_filtered), max(y_filtered)], gmm.means_[m, 0],
+                                     gmm.means_[m, 1], 1, np.sqrt(gmm.covariances_[m][0, 0]),
+                                     np.sqrt(gmm.covariances_[m][1, 1]), rho, 0, color='r')
+                plt.savefig(figure_path, dpi = 100, bbox_inches='tight')
+            if verbose_flag:
+                print("Total execution time of GMM: --- %s seconds ---" % (time.time() - start_time))
+        except:
+            pass
+
+
+
+
+        
         # designed distances
         # asymmetric origami (fourth origami): 
         #   - 136 nm between ends
@@ -371,7 +453,7 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
                 axis_string.append('Site %d' % (j+1))
             ax.set_xticklabels(axis_string)
             ax.set_yticklabels(axis_string)
-            aux_folder = manage_save_directory(figures_per_pick_folder,'matrix_distance')
+            aux_folder = manage_save_directory(figures_per_pick_folder, 'matrix_distance')
             figure_name = 'matrix_distance_%02d' % i
             figure_path = os.path.join(aux_folder, '%s.png' % figure_name)
             plt.savefig(figure_path, dpi = 100, bbox_inches='tight')
@@ -471,6 +553,20 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
             figure_path = os.path.join(aux_folder, '%s.png' % figure_name)
             plt.savefig(figure_path, dpi = 300, bbox_inches='tight')
             plt.close()
+            # Save x and y positions for every pick.
+            # TODO: Save with corresponding labels.
+            # data_to_save = np.asarray([x_position_of_picked, y_position_of_picked]).T
+            # new_filename = 'pick_' + str(i) + '_xy_.dat'
+            # new_filepath = os.path.join(kinetics_folder, new_filename)
+            # np.savetxt(new_filepath, data_to_save)
+            #
+            # # save ALL traces in one file
+            # new_filename = 'pick_' + str(i) + '_cm_xy.dat'
+            # new_filepath = os.path.join(kinetics_folder, new_filename)
+            # np.savetxt(new_filepath, np.asarray([cm_binding_sites_x, cm_binding_sites_y]).T)
+
+
+
             
         if plot_flag:
             # plot FINE 2d image
@@ -483,10 +579,21 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
             plt.plot(cm_binding_sites_x, cm_binding_sites_y, 'x', markersize = 9, 
                      color = 'white', label = 'binding sites')
             plt.plot(x_fitted, y_fitted, '--', linewidth = 1, color = 'white')
-            for circle_x, circle_y in zip(cm_binding_sites_x, cm_binding_sites_y):
+
+            # TODO: Plot both PAPER version and normal version here.
+            for k, (circle_x, circle_y) in enumerate(zip(cm_binding_sites_x, cm_binding_sites_y)):
                 circ = plot_circle((circle_x, circle_y), radius = analysis_radius, 
                             color = 'white', fill = False)
                 ax.add_patch(circ)
+
+                # Peak labels in ascending order
+                theta = np.arctan(slope)
+                perpendicular_x = circle_x + analysis_radius*1.25*np.cos(theta+np.pi/2)
+                perpendicular_y = circle_y + -1/slope * (perpendicular_x-circle_x)
+                text_position = (perpendicular_x, perpendicular_y)
+                text_content = f"{ranks[k]}"
+                ax.text(*text_position, text_content, ha='center', va='center', rotation=0, fontsize=12, color='white')
+
             if NP_flag:
                 plt.plot(x_avg_NP, y_avg_NP, 'o', markersize = 8, markerfacecolor = 'C1', 
                          markeredgecolor = 'white', label = 'NP')
@@ -514,10 +621,17 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
             plt.plot(x_fitted, y_fitted, '--', linewidth = 1, color = 'wheat')
             ax = plt.gca()
             ax.set_facecolor(bkg_color)
-            for circle_x, circle_y in zip(cm_binding_sites_x, cm_binding_sites_y):
+            for k, (circle_x, circle_y) in enumerate(zip(cm_binding_sites_x, cm_binding_sites_y)):
                 circ = plot_circle((circle_x, circle_y), radius = analysis_radius, 
                             color = 'white', fill = False)
                 ax.add_patch(circ)
+                # Peak labels in ascending order
+                theta = np.arctan(-abs(slope))
+                perpendicular_x = circle_x + analysis_radius*1.25*np.cos(theta+np.pi/2)
+                perpendicular_y = circle_y + -1/slope * (perpendicular_x-circle_x)
+                text_position = (perpendicular_x, perpendicular_y)
+                text_content = f"{ranks[k]}"
+                ax.text(*text_position, text_content, ha='center', va='center', rotation=0, fontsize=12, color='white')
             if NP_flag:
                 plt.plot(x_avg_NP, y_avg_NP, 'o', markersize = 8, markerfacecolor = 'white', 
                          markeredgecolor = 'black', label = 'NP')
@@ -575,7 +689,8 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
             figure_path = os.path.join(aux_folder, '%s.png' % figure_name)
             plt.savefig(figure_path, dpi = 300, bbox_inches='tight')
             plt.close()
-           
+
+
     ## plot relative positions of the binding sites with respect NP
     number_of_bins = 16
     hist_range = [25, 160]
@@ -630,28 +745,33 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
     plt.close()
     
     ## PHOTONS
-    plt.figure()
-    plt.step(time_concat, photons_concat, '.')
-    plt.xlabel('Time (min)')
-    plt.ylabel('Photons')
+    fig, ax = plt.subplots(1, 1)
+    ax.hist(time_concat, bins=len(bin_centers_minutes), weights=photons_concat, histtype='step')
+    ax.set_xlabel('Time (min)')
+    ax.set_ylabel('Photons')
+    ax.set_title('Photons vs time')
     x_limit = [0, total_time_min]
     plt.xlim(x_limit)
-    ax = plt.gca()
-    ax.set_title('Photons vs time')
     figure_name = 'photons_vs_time'
     figure_path = os.path.join(figures_folder, '%s.png' % figure_name)
     plt.savefig(figure_path, dpi = 300, bbox_inches='tight')
     plt.close()
-    
+
+    new_filename = 'PHOTONS_%s.dat' % (frame_file[:-10])
+    new_filepath = os.path.join(kinetics_folder, new_filename)
+    np.savetxt(new_filepath, photons_concat)
+
+    new_filename = 'TIME_%s.dat' % (frame_file[:-10])
+    new_filepath = os.path.join(kinetics_folder, new_filename)
+    np.savetxt(new_filepath, time_concat)
     ## BACKGROUND
-    plt.figure()
-    plt.step(time_concat, bkg_concat, '.')
-    plt.xlabel('Time (min)')
-    plt.ylabel('Background')
+    fig, ax = plt.subplots(1, 1)
+    ax.hist(time_concat, bins=len(bin_centers_minutes), weights=bkg_concat, histtype='step')
+    ax.set_xlabel('Time (min)')
+    ax.set_ylabel('Background')
+    ax.set_title('Background vs time')
     x_limit = [0, total_time_min]
     plt.xlim(x_limit)
-    ax = plt.gca()
-    ax.set_title('Background vs time')
     figure_name = 'bkg_vs_time'
     figure_path = os.path.join(figures_folder, '%s.png' % figure_name)
     plt.savefig(figure_path, dpi = 300, bbox_inches='tight')
@@ -667,7 +787,27 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
     new_filepath = os.path.join(kinetics_folder, new_filename)
     np.savetxt(new_filepath, all_traces_per_pick, fmt='%05d')
     # compile all traces of the image in one array
-    
+
+    # GMM stds
+    plt.figure()
+    fig, ax = plt.subplots(1, 1)
+    #ax.hist(np.sqrt(np.array(gmm_stds).reshape(-1, 2))*1e3, bins=len(gmm_stds), stacked=True, label=['s_x', 's_y'])
+    gmm_stds_total = np.concatenate((gmm_stds_x.reshape(-1, 1), gmm_stds_y.reshape(-1, 1)), axis=1)
+    ax.hist(np.sqrt(gmm_stds_total)*1e3, bins=len(gmm_stds), stacked=True, label=['s_x', 's_y'])
+    ax.set_xlabel('Standard deviation (um))')
+    ax.set_ylabel('Counts')
+    plt.legend()
+    ax.set_title('Distribution of the GMMs standard deviation.')
+    figure_name = 'GMM_stds'
+    figure_path = os.path.join(figures_folder, '%s.png' % figure_name)
+    plt.savefig(figure_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+    new_filename = 'gmm_stds.dat'
+    new_filepath = os.path.join(gaussian_folder, new_filename)
+    np.savetxt(new_filepath, np.array(gmm_stds).reshape(-1, 2))
+
+
     # number of locs
     data_to_save = np.asarray([pick_number, locs_of_picked]).T
     new_filename = 'number_of_locs_per_pick.dat'
@@ -695,7 +835,7 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
 if __name__ == '__main__':
     
     # load and open folder and file
-    base_folder = 'C:\\datos_mariano\\posdoc\\unifr\\DNA-PAINT_nanothermometry\\data_fribourg'
+    base_folder = "C:\\Users\\olled\\Documents\\DNA-PAINT\\Data\\single_channel_DNA-PAINT_example\\Week_4\\All_DNA_Origami\\17_picks"
     root = tk.Tk()
     selected_file = fd.askopenfilename(initialdir = base_folder,
                                           filetypes=(("", "*.dat") , ("", "*.")))   
@@ -723,4 +863,4 @@ if __name__ == '__main__':
     
     process_dat_files(number_of_frames, exp_time, working_folder,
                           docking_sites, NP_flag, pixel_size, pick_size, 
-                          radius_of_pick_to_average, th, plot_flag)
+                          radius_of_pick_to_average, th, plot_flag, True)

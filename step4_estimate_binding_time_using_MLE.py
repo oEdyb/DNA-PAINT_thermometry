@@ -39,7 +39,7 @@ plt.ioff()
 
 def estimate_binding_unbinding_times(exp_time, rango, working_folder, \
                                     initial_params, likelihood_err_param, \
-                                    opt_display_flag, hyper_exponential_flag):
+                                    opt_display_flag, hyper_exponential_flag, verbose_flag):
     
     print('\nStarting STEP 4.')
         
@@ -57,7 +57,7 @@ def estimate_binding_unbinding_times(exp_time, rango, working_folder, \
                                             exp_time, initial_params, \
                                             likelihood_err_param, \
                                             hyper_exponential_flag, \
-                                            opt_display_flag, 1)
+                                            opt_display_flag, 1, verbose_flag)
     
     print('\nSolution for tau_on')
     # print(solutions_on)
@@ -67,7 +67,7 @@ def estimate_binding_unbinding_times(exp_time, rango, working_folder, \
     # solutions_off = find_best_tau_using_MLE(t_off_full_filepath, rango, \
     #                                         exp_time, initial_params, \
     #                                         likelihood_err_param, \
-    #                                         opt_display_flag, 5)
+    #                                         opt_display_flag, 5, verbose_flag)
 
     # print('\nSolution for tau_off')
     # print(solutions_off)
@@ -84,7 +84,7 @@ def estimate_binding_unbinding_times(exp_time, rango, working_folder, \
 
 def find_best_tau_using_MLE(full_filepath, rango, exp_time, initial_params, \
                             likelihood_err_param, hyper_exponential_flag, \
-                            opt_display_flag, factor):
+                            opt_display_flag, factor, verbose_flag):
     # factor is to be used in case you're estimating tau_off which is significantly
     # larger than tau_on, typically
     rango = factor*np.array(rango)
@@ -104,12 +104,16 @@ def find_best_tau_using_MLE(full_filepath, rango, exp_time, initial_params, \
         # initial parameters, input of the minimizer
         [tau_long_init, tau_short_init, set_ratio] = initial_params
     else:
-        tau_short_lower_bound = 1e-4
-        tau_short_upper_bound = 1e-3
+        # tau_short_lower_bound = 1e-4
+        # tau_short_upper_bound = 1e-3
         ratio_lower_bound = 0
         ratio_upper_bound = np.inf
+        tau_short_lower_bound = 0
+        tau_short_upper_bound = np.inf
+        # ratio_lower_bound = 0
+        # ratio_upper_bound = 100
         tau_long_init = initial_params[0]
-        tau_short_init = 1 # not relevant
+        tau_short_init = 1e3 # not relevant
         set_ratio = initial_params[2] # initial amplitude
 
     # numerical approximation of the log_ML function
@@ -147,12 +151,14 @@ def find_best_tau_using_MLE(full_filepath, rango, exp_time, initial_params, \
     def callback_fun(X):
         road_to_convergence.append(list(X))
         return 
-    # define bounds of the minimization problem (any bounded method)    
+    # define bounds of the minimization problem (any bounded method)
+    # TODO: Potential problem with the bounds here.
     bnds = opt.Bounds([0.01, tau_short_lower_bound, ratio_lower_bound], \
                       [factor*100, tau_short_upper_bound, ratio_upper_bound]) # [lower bound array], [upper bound array]
     
     # now minimize
-    print('Optimization process started...')
+    if verbose_flag:
+        print('Optimization process started...')
     ################# constrained and bounded methods
     
     # define constraint of the minimization problem (for trust-constr method)
@@ -193,7 +199,8 @@ def find_best_tau_using_MLE(full_filepath, rango, exp_time, initial_params, \
     
     tau_long_amplitude = ratio_MLE/(ratio_MLE + 1)*(1/tau_long_MLE)
     tau_short_amplitude = 1/(ratio_MLE + 1)*(1/tau_short_MLE)
-    
+
+
     print('\nInitial values were:')
     print('tau_long', tau_long_init, ', tau_short', tau_short_init, \
           ', ratio', set_ratio)
@@ -445,4 +452,4 @@ if __name__ == '__main__':
 
     estimate_binding_unbinding_times(exp_time, rango, working_folder, \
                                     initial_params, likelihood_err_param, \
-                                    opt_display_flag)
+                                    opt_display_flag, False)

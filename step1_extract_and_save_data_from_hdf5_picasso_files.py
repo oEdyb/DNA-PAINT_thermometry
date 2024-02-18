@@ -18,7 +18,8 @@ import re
 import tkinter as tk
 import tkinter.filedialog as fd
 
-def split_hdf5(hdf5_file, folder, recursive_flag, rectangles_flag):
+def split_hdf5(hdf5_file, folder, recursive_flag, rectangles_flag, lpx_filter,
+               lpy_filter, verbose_flag):
     
     print('\nStarting STEP 1.')
     # set directories
@@ -77,7 +78,8 @@ def split_hdf5(hdf5_file, folder, recursive_flag, rectangles_flag):
                 group[i] = data[i][11] # if picks are circles
         
         print('\n', int(group[-1] + 1), 'picks found')
-        
+
+
         # save data
         save_folder = os.path.join(folder, 'split_data')
         if not os.path.exists(save_folder):
@@ -88,37 +90,43 @@ def split_hdf5(hdf5_file, folder, recursive_flag, rectangles_flag):
         
         clean_filename = filename[:-5]
         clean_filename = clean_filename.replace('MMStack_Pos0.ome_', '')
+
+        # Filter by lpx and lpy
+        print(f'The total number of localizations before the lp filter is: {len(x)}')
+        filter_index = np.where(np.logical_and(lpx < lpx_filter, lpy < lpy_filter))
+        print(f'The total number of localizations after the lp filter is: {len(x[filter_index])}')
+
         
         # locs
-        data_to_save = frame
+        data_to_save = frame[filter_index]
         new_filename = clean_filename + '_frame.dat'
         new_filepath = os.path.join(save_folder, new_filename)
         np.savetxt(new_filepath, data_to_save, fmt='%i')
         link_files_dict['frame'] = new_filename
         
         # positions
-        data_to_save = np.asarray([x, y]).T
+        data_to_save = np.asarray([x[filter_index], y[filter_index]]).T
         new_filename = clean_filename + '_xy.dat'
         new_filepath = os.path.join(save_folder, new_filename)
         np.savetxt(new_filepath, data_to_save, fmt='%.3f')
         link_files_dict['positions'] = new_filename
 
         # photons
-        data_to_save = photons
+        data_to_save = photons[filter_index]
         new_filename = clean_filename + '_photons.dat'
         new_filepath = os.path.join(save_folder, new_filename)
         np.savetxt(new_filepath, data_to_save, fmt='%.1f')
         link_files_dict['photons'] = new_filename
 
         # background
-        data_to_save = bg
+        data_to_save = bg[filter_index]
         new_filename = clean_filename + '_bkg.dat'
         new_filepath = os.path.join(save_folder, new_filename)
         np.savetxt(new_filepath, data_to_save, fmt='%.1f')
         link_files_dict['bkg'] = new_filename
         
         # pick number
-        data_to_save = group
+        data_to_save = group[filter_index]
         new_filename = clean_filename + '_pick_number.dat'
         new_filepath = os.path.join(save_folder, new_filename)
         np.savetxt(new_filepath, data_to_save, fmt='%i')
@@ -152,4 +160,5 @@ if __name__ == '__main__':
                                        filetypes=(("", "*.hdf5"), ("", "*.")))
     root.withdraw()
     
-    split_hdf5(hdf5_file, base_folder, recursive_flag, rectangles_flag)
+    split_hdf5(hdf5_file, base_folder, recursive_flag, rectangles_flag,
+               0.15, 0.15, True)

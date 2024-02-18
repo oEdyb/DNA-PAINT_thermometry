@@ -60,6 +60,32 @@ def distance(x, y, xc, yc):
     d = ((x - xc)**2 + (y - yc)**2)**0.5
     return d
 
+def gaussian_2D_angle(xy_tuple, amplitude, x0, y0, a, b, c, offset):
+    (x, y) = xy_tuple
+    g = offset + amplitude*np.exp( -(a*(x-x0)**2 + 2*b*(x-x0)*(y-y0) + c*(y-y0)**2 ) )
+    return g.ravel()
+
+# def N_gaussians_2D(xy_tuple, amplitude, x0, y0, a, b, c, offset):
+#     (x, y) = xy_tuple
+#     g1 = offset1 + amplitude*np.exp( -(a*(x-x0)**2 + 2*b*(x-x0)*(y-y0) + c*(y-y0)**2 ) )
+#     g2 = offset2 + amplitude*np.exp( -(a*(x-x0)**2 + 2*b*(x-x0)*(y-y0) + c*(y-y0)**2 ) )
+#     g3 = offset3 + amplitude*np.exp( -(a*(x-x0)**2 + 2*b*(x-x0)*(y-y0) + c*(y-y0)**2 ) )
+#     g = g1 + g2 + g3
+#     return g.ravel()
+
+def abc_to_sxsytheta(a, b, c):
+    theta_rad = 0.5*np.arctan(2*b/(a-c))
+    theta_deg = 360*theta_rad/(2*np.pi)
+    aux_sx = a*(np.cos(theta_rad))**2 + \
+             2*b*np.cos(theta_rad)*np.sin(theta_rad) + \
+             c*(np.sin(theta_rad))**2
+    sx = np.sqrt(0.5/aux_sx)
+    aux_sy = a*(np.sin(theta_rad))**2 - \
+             2*b*np.cos(theta_rad)*np.sin(theta_rad) + \
+             c*(np.cos(theta_rad))**2
+    sy = np.sqrt(0.5/aux_sy)
+    return theta_deg, sx, sy
+
 # Calculate coefficient of determination
 def calc_r2(observed, fitted):
     avg_y = observed.mean()
@@ -72,7 +98,7 @@ def calc_r2(observed, fitted):
 # linear fit without weights
 def fit_linear(x, y):
     X = np.vstack([x, np.ones(len(x))]).T
-    p, residuals, _, _ = np.linalg.lstsq(X, y, rcond = None)
+    p, residuals, _, _ = np.linalg.lstsq(X, y, rcond=None)
     x_fitted = np.array(x)
     y_fitted = np.polyval(p, x_fitted)
     Rsquared = calc_r2(y, y_fitted)
@@ -138,7 +164,7 @@ def mask(number_of_dips = 1):
     mask_array = 0.5*np.array(mask_array)
     return mask_array
 
-def calculate_tau_on_times(trace, threshold, bkg, exposure_time, mask_level): 
+def calculate_tau_on_times(trace, threshold, bkg, exposure_time, mask_level, verbose_flag):
     # exposure_time in ms
     # threshold in number of photons (integer)
     number_of_frames = int(trace.shape[0])
@@ -151,13 +177,15 @@ def calculate_tau_on_times(trace, threshold, bkg, exposure_time, mask_level):
     
     if mask_level == 1:
         # mask 1 step dips using convolution
-        print('Using convolution to mask single dips...')
+        if verbose_flag:
+            print('Using convolution to mask single dips...')
         conv_one_dip = sig.convolve(diff_binary, mask(1))
         localization_index_dips = np.where(conv_one_dip == 1)[0] - 1
         binary_trace[localization_index_dips] = 1
     elif mask_level == 2:
         # mask 2 step dips using convolution
-        print('Using convolution to mask double dips...')
+        if verbose_flag:
+            print('Using convolution to mask double dips...')
         conv_two_dip = sig.convolve(diff_binary, mask(2))
         localization_index_dips = np.where(conv_two_dip == 1)[0] - 1
         binary_trace[localization_index_dips] = 1
@@ -165,7 +193,8 @@ def calculate_tau_on_times(trace, threshold, bkg, exposure_time, mask_level):
         binary_trace[localization_index_dips] = 1
     elif mask_level > 2:
         # several steps mask
-        print('Using convolution to mask %d dips...' % mask_level)
+        if verbose_flag:
+            print('Using convolution to mask %d dips...' % mask_level)
         # conv = sig.convolve(diff_binary, mask(mask_level))
         # localization_index_dips = np.where(conv == 1)[0] - 1
         # binary_trace[localization_index_dips] = 1
@@ -176,7 +205,8 @@ def calculate_tau_on_times(trace, threshold, bkg, exposure_time, mask_level):
         print('No convolution is going to be applied.')
 
     # remove 1 step blips using convolution
-    print('Using convolution to mask single blips...')
+    if verbose_flag:
+        print('Using convolution to mask single blips...')
     conv_one_blip = sig.convolve(diff_binary, mask(-1))
     localization_index_blips = np.where(np.abs(conv_one_blip) == 1)[0] - 1
     binary_trace[localization_index_blips] = 0   
@@ -185,7 +215,8 @@ def calculate_tau_on_times(trace, threshold, bkg, exposure_time, mask_level):
     
     # estimate number of frames the fluorophore was ON
     # keep indexes where localizations have been found (> 1)
-    print('Calculating binding times...')
+    if verbose_flag:
+        print('Calculating binding times...')
     localization_index = np.where(binary_trace > 0)[0]
     localization_index_diff = np.diff(localization_index)
     keep_steps = np.where(localization_index_diff == 1)[0]
@@ -207,14 +238,19 @@ def calculate_tau_on_times(trace, threshold, bkg, exposure_time, mask_level):
     # plt.xlim([0,10000])
     # plt.show()
     
-    # calculate tau on and off
+    # calculate tau on and off,
     t_on = [len(l) for l in [list(g) for k, g in groupby(list(binary_trace), key = lambda x:x!=0) if k]]
     t_off = [len(l) for l in [list(g) for k, g in groupby(list(binary_trace), key = lambda x:x==0) if k]]
     # calculate SNR
     new_photon_trace = photons_trace*binary_trace
-    avg_photons = [np.mean(np.array(l[1:-1])) for l in [list(g) for k, g in groupby(list(new_photon_trace), key = lambda x:x!=0) if k]]
-    std_photons = [np.std(np.array(l[1:-1]), ddof = 1) for l in [list(g) for k, g in groupby(list(new_photon_trace), key = lambda x:x!=0) if k]]
-    
+
+    # Compute avg and std when a docking location is emitting light. Since we are only considering the middle values of
+    # the array (array[1:-1]) since the in the first and last values we can get docking locations which are not on
+    # during the entire duration of the exposure time. We must therefore consider arrays larger than 3 to get more than
+    # one value.
+    avg_photons = [np.mean(np.array(l[1:-1])) for l in [list(g) for k, g in groupby(list(new_photon_trace), key = lambda x:x!=0) if k] if len(l) > 4]
+    std_photons = [np.std(np.array(l[1:-1]), ddof = 1) for l in [list(g) for k, g in groupby(list(new_photon_trace), key = lambda x:x!=0) if k] if len(l) > 4]
+
     if binary_trace[0] == 1:
         t_on = t_on[1:]
     else:
@@ -230,7 +266,8 @@ def calculate_tau_on_times(trace, threshold, bkg, exposure_time, mask_level):
     bkg_array = bkg*np.ones(len(avg_photons))
     SNR = (avg_photons - bkg_array)/std_photons
     SBR = (avg_photons - bkg_array)/bkg_array
-    print('---------------------------')
+    if verbose_flag:
+        print('---------------------------')
     return t_on*exposure_time, t_off*exposure_time, binary_trace, start_time*exposure_time, SNR, SBR
 
 # definition of hyperexponential p.d.f.
@@ -269,6 +306,7 @@ def hyperexp_func_with_error(time, real_binding_time, short_on_time, ratio):
     f_short_new = np.exp(0.5*(beta_short_time*R)**2)*G_short*f_short
     f = A*f_binding_new + B*f_short_new
     return f
+
 
 # definition of monoexponential p.d.f.
 def monoexp_func_with_error(time, real_binding_time, short_on_time, amplitude):
