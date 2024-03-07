@@ -4,7 +4,7 @@ from PyQt6.QtGui import QIntValidator
 import os
 import threading
 import subprocess
-import TIFF_UI
+# import TIFF_UI
 
 
 class AnalysisThread(threading.Thread):
