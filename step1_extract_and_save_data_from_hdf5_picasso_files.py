@@ -76,8 +76,7 @@ def split_hdf5(hdf5_file, folder, recursive_flag, rectangles_flag, lpx_filter,
                 group[i] = data[i][13] # if picks are rectangles
             else:
                 group[i] = data[i][11] # if picks are circles
-        
-        print('\n', int(group[-1] + 1), 'picks found')
+
 
 
         # save data
@@ -92,11 +91,12 @@ def split_hdf5(hdf5_file, folder, recursive_flag, rectangles_flag, lpx_filter,
         clean_filename = clean_filename.replace('MMStack_Pos0.ome_', '')
 
         # Filter by lpx and lpy
-        print(f'The total number of localizations before the lp filter is: {len(x)}')
-        filter_index = np.where(np.logical_and(lpx < lpx_filter, lpy < lpy_filter))
-        print(f'The total number of localizations after the lp filter is: {len(x[filter_index])}')
+        filter_index = np.where(np.logical_and(np.logical_and(lpx < lpx_filter, lpy < lpy_filter), net_gradient > 0))
 
-        
+
+
+
+        clean_filename = ''
         # locs
         data_to_save = frame[filter_index]
         new_filename = clean_filename + '_frame.dat'
@@ -137,7 +137,19 @@ def split_hdf5(hdf5_file, folder, recursive_flag, rectangles_flag, lpx_filter,
         new_filepath = os.path.join(save_folder, new_filename)
         with open(new_filepath, 'wb') as f:
             pickle.dump(data_to_save, f)
-            
+
+    # Print the summary information elegantly
+    # Add a summary dictionary to collect essential information
+    summary_info = {
+        'Total Files Processed': len(list_of_files),
+        'Picks Found': int(group[-1] + 1),
+        'Localizations Before LP Filter': len(x),
+        'Localizations After LP Filter': len(x[filter_index]),
+    }
+    print("\n------ Summary of STEP 1 ------")
+    for key, value in summary_info.items():
+        print(f"{key}: {value}")
+    print("All data saved in 'split_data' directory.")
     print('\nDone with STEP 1.')
     return
 

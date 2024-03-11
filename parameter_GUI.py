@@ -4,7 +4,6 @@ from PyQt6.QtGui import QIntValidator
 import os
 import threading
 import subprocess
-# import TIFF_UI
 
 
 class AnalysisThread(threading.Thread):
@@ -29,13 +28,11 @@ class AnalysisThread(threading.Thread):
 class Ui_Parameters(object):
     def setupUi(self, Parameters):
         Parameters.setObjectName("Parameters")
-        Parameters.resize(273, 894)
+        Parameters.resize(1, 1)
         self.centralwidget = QtWidgets.QWidget(parent=Parameters)
         self.centralwidget.setObjectName("centralwidget")
         self.verticalLayout_6 = QtWidgets.QVBoxLayout(self.centralwidget)
         self.verticalLayout_6.setObjectName("verticalLayout_6")
-        self.verticalLayout_4 = QtWidgets.QVBoxLayout()
-        self.verticalLayout_4.setObjectName("verticalLayout_4")
         self.groupBox_5 = QtWidgets.QGroupBox(parent=self.centralwidget)
         self.groupBox_5.setWhatsThis("")
         self.groupBox_5.setObjectName("groupBox_5")
@@ -66,42 +63,18 @@ class Ui_Parameters(object):
         self.checkVerbose.setObjectName("checkVerbose")
         self.verticalLayout_7.addWidget(self.checkVerbose)
         self.horizontalLayout_7.addLayout(self.verticalLayout_7)
-        self.verticalLayout_4.addWidget(self.groupBox_5)
-        self.groupBox = QtWidgets.QGroupBox(parent=self.centralwidget)
-        self.groupBox.setObjectName("groupBox")
-        self.horizontalLayout_2 = QtWidgets.QHBoxLayout(self.groupBox)
-        self.horizontalLayout_2.setObjectName("horizontalLayout_2")
-        self.verticalLayout_2 = QtWidgets.QVBoxLayout()
-        self.verticalLayout_2.setObjectName("verticalLayout_2")
-        self.checkRectangle = QtWidgets.QCheckBox(parent=self.groupBox)
-        self.checkRectangle.setLayoutDirection(QtCore.Qt.LayoutDirection.LeftToRight)
-        self.checkRectangle.setObjectName("checkRectangle")
-        self.verticalLayout_2.addWidget(self.checkRectangle)
-        self.checkRecursive = QtWidgets.QCheckBox(parent=self.groupBox)
-        self.checkRecursive.setLayoutDirection(QtCore.Qt.LayoutDirection.LeftToRight)
-        self.checkRecursive.setObjectName("checkRecursive")
-        self.verticalLayout_2.addWidget(self.checkRecursive)
-        self.formLayout_4 = QtWidgets.QFormLayout()
-        self.formLayout_4.setObjectName("formLayout_4")
-        self.lpyLabel = QtWidgets.QLabel(parent=self.groupBox)
-        self.lpyLabel.setObjectName("lpyLabel")
-        self.formLayout_4.setWidget(1, QtWidgets.QFormLayout.ItemRole.LabelRole, self.lpyLabel)
-        self.lpy = QtWidgets.QDoubleSpinBox(parent=self.groupBox)
-        self.lpy.setToolTip("")
-        self.lpy.setProperty("value", 0.15)
-        self.lpy.setObjectName("lpy")
-        self.formLayout_4.setWidget(1, QtWidgets.QFormLayout.ItemRole.FieldRole, self.lpy)
-        self.lpxLabel = QtWidgets.QLabel(parent=self.groupBox)
-        self.lpxLabel.setObjectName("lpxLabel")
-        self.formLayout_4.setWidget(0, QtWidgets.QFormLayout.ItemRole.LabelRole, self.lpxLabel)
-        self.lpx = QtWidgets.QDoubleSpinBox(parent=self.groupBox)
-        self.lpx.setToolTip("")
-        self.lpx.setProperty("value", 0.15)
-        self.lpx.setObjectName("lpx")
-        self.formLayout_4.setWidget(0, QtWidgets.QFormLayout.ItemRole.FieldRole, self.lpx)
-        self.verticalLayout_2.addLayout(self.formLayout_4)
-        self.horizontalLayout_2.addLayout(self.verticalLayout_2)
-        self.verticalLayout_4.addWidget(self.groupBox)
+        self.verticalLayout = QtWidgets.QVBoxLayout()
+        self.verticalLayout.setObjectName("verticalLayout")
+        self.saveButton = QtWidgets.QPushButton(parent=self.groupBox_5)
+        self.saveButton.setObjectName("saveButton")
+        self.verticalLayout.addWidget(self.saveButton, 0, QtCore.Qt.AlignmentFlag.AlignTop)
+        self.runButton = QtWidgets.QPushButton(parent=self.groupBox_5)
+        self.runButton.setObjectName("runButton")
+        self.verticalLayout.addWidget(self.runButton)
+        self.horizontalLayout_7.addLayout(self.verticalLayout)
+        self.verticalLayout_6.addWidget(self.groupBox_5)
+        self.gridLayout = QtWidgets.QGridLayout()
+        self.gridLayout.setObjectName("gridLayout")
         self.groupBox_2 = QtWidgets.QGroupBox(parent=self.centralwidget)
         self.groupBox_2.setObjectName("groupBox_2")
         self.horizontalLayout = QtWidgets.QHBoxLayout(self.groupBox_2)
@@ -162,7 +135,7 @@ class Ui_Parameters(object):
         self.docking_sites.setObjectName("docking_sites")
         self.formLayout.setWidget(7, QtWidgets.QFormLayout.ItemRole.FieldRole, self.docking_sites)
         self.horizontalLayout.addLayout(self.formLayout)
-        self.verticalLayout_4.addWidget(self.groupBox_2)
+        self.gridLayout.addWidget(self.groupBox_2, 2, 0, 1, 1)
         self.groupBox_3 = QtWidgets.QGroupBox(parent=self.centralwidget)
         self.groupBox_3.setObjectName("groupBox_3")
         self.horizontalLayout_3 = QtWidgets.QHBoxLayout(self.groupBox_3)
@@ -172,9 +145,19 @@ class Ui_Parameters(object):
         self.photonLabel = QtWidgets.QLabel(parent=self.groupBox_3)
         self.photonLabel.setObjectName("photonLabel")
         self.formLayout_2.setWidget(0, QtWidgets.QFormLayout.ItemRole.LabelRole, self.photonLabel)
+        self.photon_threshold = QtWidgets.QDoubleSpinBox(parent=self.groupBox_3)
+        self.photon_threshold.setMaximum(1000000.0)
+        self.photon_threshold.setProperty("value", 300.0)
+        self.photon_threshold.setObjectName("photon_threshold")
+        self.formLayout_2.setWidget(0, QtWidgets.QFormLayout.ItemRole.FieldRole, self.photon_threshold)
         self.bkgLabel = QtWidgets.QLabel(parent=self.groupBox_3)
         self.bkgLabel.setObjectName("bkgLabel")
         self.formLayout_2.setWidget(1, QtWidgets.QFormLayout.ItemRole.LabelRole, self.bkgLabel)
+        self.background_level = QtWidgets.QDoubleSpinBox(parent=self.groupBox_3)
+        self.background_level.setMaximum(1000000.0)
+        self.background_level.setProperty("value", 600.0)
+        self.background_level.setObjectName("background_level")
+        self.formLayout_2.setWidget(1, QtWidgets.QFormLayout.ItemRole.FieldRole, self.background_level)
         self.maskLabel = QtWidgets.QLabel(parent=self.groupBox_3)
         self.maskLabel.setObjectName("maskLabel")
         self.formLayout_2.setWidget(2, QtWidgets.QFormLayout.ItemRole.LabelRole, self.maskLabel)
@@ -184,18 +167,11 @@ class Ui_Parameters(object):
         self.mask.addItem("")
         self.mask.addItem("")
         self.formLayout_2.setWidget(2, QtWidgets.QFormLayout.ItemRole.FieldRole, self.mask)
-        self.photon_threshold = QtWidgets.QDoubleSpinBox(parent=self.groupBox_3)
-        self.photon_threshold.setMaximum(1000000.0)
-        self.photon_threshold.setProperty("value", 300.0)
-        self.photon_threshold.setObjectName("photon_threshold")
-        self.formLayout_2.setWidget(0, QtWidgets.QFormLayout.ItemRole.FieldRole, self.photon_threshold)
-        self.background_level = QtWidgets.QDoubleSpinBox(parent=self.groupBox_3)
-        self.background_level.setMaximum(1000000.0)
-        self.background_level.setProperty("value", 600.0)
-        self.background_level.setObjectName("background_level")
-        self.formLayout_2.setWidget(1, QtWidgets.QFormLayout.ItemRole.FieldRole, self.background_level)
+        self.checkSingles = QtWidgets.QCheckBox(parent=self.groupBox_3)
+        self.checkSingles.setObjectName("checkSingles")
+        self.formLayout_2.setWidget(3, QtWidgets.QFormLayout.ItemRole.LabelRole, self.checkSingles)
         self.horizontalLayout_3.addLayout(self.formLayout_2)
-        self.verticalLayout_4.addWidget(self.groupBox_3)
+        self.gridLayout.addWidget(self.groupBox_3, 1, 1, 1, 1)
         self.groupBox_4 = QtWidgets.QGroupBox(parent=self.centralwidget)
         self.groupBox_4.setObjectName("groupBox_4")
         self.horizontalLayout_4 = QtWidgets.QHBoxLayout(self.groupBox_4)
@@ -265,23 +241,49 @@ class Ui_Parameters(object):
         self.likelihood_error.setObjectName("likelihood_error")
         self.formLayout_3.setWidget(4, QtWidgets.QFormLayout.ItemRole.FieldRole, self.likelihood_error)
         self.horizontalLayout_4.addLayout(self.formLayout_3)
-        self.verticalLayout_4.addWidget(self.groupBox_4)
-        self.horizontalLayout_8 = QtWidgets.QHBoxLayout()
-        self.horizontalLayout_8.setObjectName("horizontalLayout_8")
-        self.saveButton = QtWidgets.QPushButton(parent=self.centralwidget)
-        self.saveButton.setObjectName("saveButton")
-        self.horizontalLayout_8.addWidget(self.saveButton)
-        self.runButton = QtWidgets.QPushButton(parent=self.centralwidget)
-        self.runButton.setObjectName("runButton")
-        self.horizontalLayout_8.addWidget(self.runButton)
-        self.verticalLayout_4.addLayout(self.horizontalLayout_8)
-        self.verticalLayout_6.addLayout(self.verticalLayout_4)
+        self.gridLayout.addWidget(self.groupBox_4, 2, 1, 1, 1)
+        self.groupBox = QtWidgets.QGroupBox(parent=self.centralwidget)
+        self.groupBox.setObjectName("groupBox")
+        self.horizontalLayout_2 = QtWidgets.QHBoxLayout(self.groupBox)
+        self.horizontalLayout_2.setObjectName("horizontalLayout_2")
+        self.verticalLayout_2 = QtWidgets.QVBoxLayout()
+        self.verticalLayout_2.setObjectName("verticalLayout_2")
+        self.checkRectangle = QtWidgets.QCheckBox(parent=self.groupBox)
+        self.checkRectangle.setLayoutDirection(QtCore.Qt.LayoutDirection.LeftToRight)
+        self.checkRectangle.setObjectName("checkRectangle")
+        self.verticalLayout_2.addWidget(self.checkRectangle)
+        self.checkRecursive = QtWidgets.QCheckBox(parent=self.groupBox)
+        self.checkRecursive.setLayoutDirection(QtCore.Qt.LayoutDirection.LeftToRight)
+        self.checkRecursive.setObjectName("checkRecursive")
+        self.verticalLayout_2.addWidget(self.checkRecursive)
+        self.formLayout_4 = QtWidgets.QFormLayout()
+        self.formLayout_4.setObjectName("formLayout_4")
+        self.lpxLabel = QtWidgets.QLabel(parent=self.groupBox)
+        self.lpxLabel.setObjectName("lpxLabel")
+        self.formLayout_4.setWidget(0, QtWidgets.QFormLayout.ItemRole.LabelRole, self.lpxLabel)
+        self.lpx = QtWidgets.QDoubleSpinBox(parent=self.groupBox)
+        self.lpx.setToolTip("")
+        self.lpx.setProperty("value", 0.15)
+        self.lpx.setObjectName("lpx")
+        self.formLayout_4.setWidget(0, QtWidgets.QFormLayout.ItemRole.FieldRole, self.lpx)
+        self.lpyLabel = QtWidgets.QLabel(parent=self.groupBox)
+        self.lpyLabel.setObjectName("lpyLabel")
+        self.formLayout_4.setWidget(1, QtWidgets.QFormLayout.ItemRole.LabelRole, self.lpyLabel)
+        self.lpy = QtWidgets.QDoubleSpinBox(parent=self.groupBox)
+        self.lpy.setToolTip("")
+        self.lpy.setProperty("value", 0.15)
+        self.lpy.setObjectName("lpy")
+        self.formLayout_4.setWidget(1, QtWidgets.QFormLayout.ItemRole.FieldRole, self.lpy)
+        self.verticalLayout_2.addLayout(self.formLayout_4)
+        self.horizontalLayout_2.addLayout(self.verticalLayout_2)
+        self.gridLayout.addWidget(self.groupBox, 1, 0, 1, 1)
+        self.verticalLayout_6.addLayout(self.gridLayout)
         Parameters.setCentralWidget(self.centralwidget)
         self.statusbar = QtWidgets.QStatusBar(parent=Parameters)
         self.statusbar.setObjectName("statusbar")
         Parameters.setStatusBar(self.statusbar)
         self.menubar = QtWidgets.QMenuBar(parent=Parameters)
-        self.menubar.setGeometry(QtCore.QRect(0, 0, 273, 22))
+        self.menubar.setGeometry(QtCore.QRect(0, 0, 713, 22))
         self.menubar.setObjectName("menubar")
         self.menuFile = QtWidgets.QMenu(parent=self.menubar)
         self.menuFile.setObjectName("menuFile")
@@ -323,6 +325,7 @@ class Ui_Parameters(object):
                 "step3": lambda: self.checkStep3.setChecked(value),
                 "step4": lambda: self.checkStep4.setChecked(value),
                 "verbose": lambda: self.checkVerbose.setChecked(value),
+                "mask_singles": lambda: self.checkSingles.setChecked(value),
                 "recursive": lambda: self.checkRecursive.setChecked(value),
                 "rectangle": lambda: self.checkRectangle.setChecked(value),
                 "lpx_filter": lambda: self.lpx.setValue(float(value)),
@@ -373,6 +376,7 @@ class Ui_Parameters(object):
                 "step3": self.checkStep3.isChecked(),
                 "step4": self.checkStep4.isChecked(),
                 "verbose": self.checkVerbose.isChecked(),
+                "mask_singles": self.checkSingles.isChecked(),
                 "recursive": self.checkRecursive.isChecked(),
                 "rectangle": self.checkRectangle.isChecked(),
                 "lpx_filter": self.lpx.value(),
@@ -404,6 +408,7 @@ class Ui_Parameters(object):
                 "step3": self.checkStep3.isChecked(),
                 "step4": self.checkStep4.isChecked(),
                 "verbose": self.checkVerbose.isChecked(),
+                "mask_singles": self.checkSingles.isChecked(),
                 "recursive": self.checkRecursive.isChecked(),
                 "rectangle": self.checkRectangle.isChecked(),
                 "lpx_filter": self.lpx.value(),
@@ -476,16 +481,8 @@ class Ui_Parameters(object):
             _translate("Parameters", "This step finds the kinetic binding time of an imager probe."))
         self.checkStep4.setText(_translate("Parameters", "Step 4"))
         self.checkVerbose.setText(_translate("Parameters", "Verbose"))
-        self.groupBox.setTitle(_translate("Parameters", "Step 1"))
-        self.checkRectangle.setToolTip(_translate("Parameters", "If unchecked the picks are assumed to be circles."))
-        self.checkRectangle.setText(_translate("Parameters", "Rectangle"))
-        self.checkRecursive.setToolTip(
-            _translate("Parameters", "If checked runs all files inside the selected folder."))
-        self.checkRecursive.setText(_translate("Parameters", "Recursive"))
-        self.lpyLabel.setToolTip(_translate("Parameters", "Filter the localization precision in the y-direction."))
-        self.lpyLabel.setText(_translate("Parameters", "Filter lpy:"))
-        self.lpxLabel.setToolTip(_translate("Parameters", "Filter the localization precision in the x-direction."))
-        self.lpxLabel.setText(_translate("Parameters", "Filter lpx:"))
+        self.saveButton.setText(_translate("Parameters", "Save Parameters"))
+        self.runButton.setText(_translate("Parameters", "Run"))
         self.groupBox_2.setTitle(_translate("Parameters", "Step 2"))
         self.checkNP.setToolTip(_translate("Parameters", "Check if there are nanoparticles present in the picks."))
         self.checkNP.setText(_translate("Parameters", "Nanoparticle"))
@@ -515,6 +512,9 @@ class Ui_Parameters(object):
         self.mask.setItemText(0, _translate("Parameters", "0"))
         self.mask.setItemText(1, _translate("Parameters", "1"))
         self.mask.setItemText(2, _translate("Parameters", "2"))
+        self.checkSingles.setToolTip(
+            _translate("Parameters", "Check to remove binding times lasting less than the exposure time."))
+        self.checkSingles.setText(_translate("Parameters", "Mask Singles"))
         self.groupBox_4.setTitle(_translate("Parameters", "Step 4"))
         self.checkOptimizationDisplay.setToolTip(
             _translate("Parameters", "Print optimization results when fitting exponentials."))
@@ -536,8 +536,16 @@ class Ui_Parameters(object):
         self.likelihoodErrorLabel.setToolTip(_translate("Parameters",
                                                         "This value is related to the likelihood error interval when estimating the error."))
         self.likelihoodErrorLabel.setText(_translate("Parameters", "Likelihood Error:"))
-        self.saveButton.setText(_translate("Parameters", "Save"))
-        self.runButton.setText(_translate("Parameters", "Run"))
+        self.groupBox.setTitle(_translate("Parameters", "Step 1"))
+        self.checkRectangle.setToolTip(_translate("Parameters", "If unchecked the picks are assumed to be circles."))
+        self.checkRectangle.setText(_translate("Parameters", "Rectangle"))
+        self.checkRecursive.setToolTip(
+            _translate("Parameters", "If checked runs all files inside the selected folder."))
+        self.checkRecursive.setText(_translate("Parameters", "Recursive"))
+        self.lpxLabel.setToolTip(_translate("Parameters", "Filter the localization precision in the x-direction."))
+        self.lpxLabel.setText(_translate("Parameters", "Filter lpx:"))
+        self.lpyLabel.setToolTip(_translate("Parameters", "Filter the localization precision in the y-direction."))
+        self.lpyLabel.setText(_translate("Parameters", "Filter lpy:"))
         self.menuFile.setTitle(_translate("Parameters", "File"))
         self.actionOpen.setText(_translate("Parameters", "Open"))
         self.actionRun.setText(_translate("Parameters", "Run"))
@@ -566,6 +574,7 @@ class Ui_Parameters(object):
                         "recursive": self.checkRecursive.isChecked(),
                         "rectangle": self.checkRectangle.isChecked(),
                         "verbose": self.checkVerbose.isChecked(),
+                        "mask_singles": self.checkSingles.isChecked(),
                         "lpx_filter": self.lpx.value(),
                         "lpy_filter": self.lpy.value(),
                         "number_of_frames": self.number_of_frames.value(),

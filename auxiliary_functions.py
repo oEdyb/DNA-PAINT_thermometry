@@ -17,6 +17,7 @@ from itertools import groupby
 import scipy.stats as sta
 import matplotlib.pyplot as plt
 
+
 # time resolution at 100 ms
 R = 0.07 # resolution width, in s
 R = 0.00 # resolution width, in s
@@ -147,9 +148,10 @@ def classification(value, totalbins, rango):
             break
     return numbin
 
+
 def mask(number_of_dips = 1):
     # initialize mask array
-    mask_array = [0,1]
+    mask_array = [0, 1]
     if number_of_dips > 0:
         for i in range(number_of_dips-1):
             mask_array.append(0)
@@ -158,13 +160,13 @@ def mask(number_of_dips = 1):
     elif number_of_dips == -1:
         mask_array = [0,-1,1,0]
     elif number_of_dips == -99:
-        mask_array = [0,2,0]
+        mask_array = [0, 1, 1]
     else:
         mask_array = [0,0]
     mask_array = 0.5*np.array(mask_array)
     return mask_array
 
-def calculate_tau_on_times(trace, threshold, bkg, exposure_time, mask_level, verbose_flag):
+def calculate_tau_on_times(trace, threshold, bkg, exposure_time, mask_level, mask_singles, verbose_flag, index):
     # exposure_time in ms
     # threshold in number of photons (integer)
     number_of_frames = int(trace.shape[0])
@@ -202,14 +204,17 @@ def calculate_tau_on_times(trace, threshold, bkg, exposure_time, mask_level, ver
         # binary_trace[localization_index_dips] = 1
     else:
         # no mask defined for convolution
-        print('No convolution is going to be applied.')
+        if verbose_flag:
+            print('No convolution is going to be applied.')
 
     # remove 1 step blips using convolution
-    if verbose_flag:
-        print('Using convolution to mask single blips...')
-    conv_one_blip = sig.convolve(diff_binary, mask(-1))
-    localization_index_blips = np.where(np.abs(conv_one_blip) == 1)[0] - 1
-    binary_trace[localization_index_blips] = 0   
+    if mask_singles:
+        if verbose_flag:
+            print('Using convolution to mask single blips...')
+
+        conv_one_blip = sig.convolve(diff_binary, mask(-1))
+        localization_index_blips = np.where(np.abs(conv_one_blip) == 1)[0] - 1
+        binary_trace[localization_index_blips] = 0
         
     # now, with the trace "restored" we can estimate tau_on...
     
@@ -222,11 +227,22 @@ def calculate_tau_on_times(trace, threshold, bkg, exposure_time, mask_level, ver
     keep_steps = np.where(localization_index_diff == 1)[0]
     localization_index_steps = localization_index[keep_steps]
     binary_trace[localization_index_steps] = 1   
-    
-    # mask starting time using convolution
-    conv_start_time = sig.convolve(diff_binary, mask(-99))
-    localization_index_start = np.where(conv_start_time == 1)[0] - 1
-    
+
+
+
+    # Starting time of the tau ons
+    try:
+        localization_index_start = []
+        localization_index_start.append(localization_index[0]-1)
+        localization_index_start_remaining = [localization_index[i+1]-1 for i, k in enumerate(localization_index_diff) if (k > 1)]
+        localization_index_start.extend(localization_index_start_remaining)
+    except:
+        return np.array([False]), [False], [False], [False], [False], [False], [False]
+
+
+    # conv_start_time = sig.convolve(diff_binary, mask(-99))
+    # localization_index_start = np.where(conv_start_time == 1)[0] - 1
+
     # ### uncomment plot to check filters and binary trace
     # plt.figure()
     # plt.plot(trace/max(trace),'-')
@@ -241,6 +257,7 @@ def calculate_tau_on_times(trace, threshold, bkg, exposure_time, mask_level, ver
     # calculate tau on and off,
     t_on = [len(l) for l in [list(g) for k, g in groupby(list(binary_trace), key = lambda x:x!=0) if k]]
     t_off = [len(l) for l in [list(g) for k, g in groupby(list(binary_trace), key = lambda x:x==0) if k]]
+
     # calculate SNR
     new_photon_trace = photons_trace*binary_trace
 
@@ -248,27 +265,32 @@ def calculate_tau_on_times(trace, threshold, bkg, exposure_time, mask_level, ver
     # the array (array[1:-1]) since the in the first and last values we can get docking locations which are not on
     # during the entire duration of the exposure time. We must therefore consider arrays larger than 3 to get more than
     # one value.
+    sum_photons = [np.sum(np.array(l)) for l in [list(g) for k, g in groupby(list(new_photon_trace), key = lambda x:x!=0) if k]]
     avg_photons = [np.mean(np.array(l[1:-1])) for l in [list(g) for k, g in groupby(list(new_photon_trace), key = lambda x:x!=0) if k] if len(l) > 4]
     std_photons = [np.std(np.array(l[1:-1]), ddof = 1) for l in [list(g) for k, g in groupby(list(new_photon_trace), key = lambda x:x!=0) if k] if len(l) > 4]
 
     if binary_trace[0] == 1:
         t_on = t_on[1:]
+        localization_index_start = localization_index_start[1:]
     else:
         t_off = t_off[1:]
     if binary_trace[-1] == 1:
         t_on = t_on[:-1]
+        localization_index_start = localization_index_start[:-1]
     else:
         t_off = t_off[:-1]     
         
     t_on = np.asarray(t_on)
+    sum_photons = np.asarray(sum_photons)
+    # plt.plot(t_on), plt.show()
     t_off = np.asarray(t_off)
     start_time = np.asarray(localization_index_start)
-    bkg_array = bkg*np.ones(len(avg_photons))
-    SNR = (avg_photons - bkg_array)/std_photons
-    SBR = (avg_photons - bkg_array)/bkg_array
+
+    SNR = np.array(avg_photons)/np.array(std_photons)
+    SBR = np.array(avg_photons)/bkg
     if verbose_flag:
         print('---------------------------')
-    return t_on*exposure_time, t_off*exposure_time, binary_trace, start_time*exposure_time, SNR, SBR
+    return t_on*exposure_time, t_off*exposure_time, binary_trace, start_time*exposure_time, SNR, SBR, sum_photons
 
 # definition of hyperexponential p.d.f.
 def hyperexp_func(time, real_binding_time, short_on_time, ratio):
@@ -335,7 +357,10 @@ def log_likelihood_hyper_with_error(theta_param, data):
     short_on_time = theta_param[1]
     ratio = theta_param[2]
     pdf_data = hyperexp_func_with_error(data, real_binding_time, short_on_time, ratio)
-    log_likelihood = -np.sum(np.log(pdf_data))
+    log_pdf = np.log(pdf_data)
+    log_pdf = log_pdf[~np.isinf(log_pdf)]
+    log_pdf = log_pdf[~np.isnan(log_pdf)]
+    log_likelihood = -np.sum(log_pdf)
     # print(log_likelihood)
     return log_likelihood
 
@@ -346,6 +371,62 @@ def log_likelihood_mono_with_error(theta_param, data):
     short_on_time = theta_param[1]
     ratio = theta_param[2]
     pdf_data = monoexp_func(data, real_binding_time, short_on_time, ratio)
-    log_likelihood = -np.sum(np.log(pdf_data))
+    log_pdf = np.log(pdf_data)
+    log_pdf = log_pdf[~np.isinf(log_pdf)]
+    log_pdf = log_pdf[~np.isnan(log_pdf)]
+    log_likelihood = -np.sum(log_pdf)
     # print(log_likelihood)
+
     return log_likelihood
+
+def plot_vs_time_with_hist(data, time, order = 3, fit_line = False):
+    dict = {}
+    # Start with a square Figure.
+    fig = plt.figure(figsize=(6, 6))  # Set figure size
+
+    # Create a gridspec for 1 row and 2 columns with a ratio of 4:1 between the main and marginal plots.
+    # Adjust subplot parameters for optimal layout.
+    gs = fig.add_gridspec(nrows=1, ncols=2, width_ratios=[4, 1],
+                          left=0.15, right=0.9, bottom=0.1, top=0.9,
+                          wspace=0.05)  # `hspace` is not needed for 1 row
+
+    # Create the main plot area.
+    ax = fig.add_subplot(gs[0, 0])
+
+    for x, y in zip(time, data):
+        if x in dict:
+            dict[x] = np.append(dict[x], y)
+        else:
+            dict[x] = np.array([y])
+
+    for x in dict.keys():
+        dict[x] = np.mean(dict[x], axis=None)
+
+    unique_time_values = np.array(list(dict.keys()))
+    summed_data = np.array(list(dict.values()))
+    sorted_indices = np.argsort(unique_time_values)
+    unique_time_values = unique_time_values[sorted_indices]
+    summed_data = summed_data[sorted_indices]
+
+    filtered_data = sig.savgol_filter(summed_data, window_length=int(len(summed_data)/20), polyorder=1)
+    if fit_line:
+        x_fitted, y_fitted, slope, intercept, Rsquared = fit_linear(unique_time_values, filtered_data)
+    ax.scatter(unique_time_values, summed_data, s=0.8)
+    ax.plot(unique_time_values, filtered_data, 'r--', linewidth=3, alpha = 0.8)
+
+    bin_edges = np.histogram_bin_edges(data, 'fd')
+    # Create the marginal plot on the right of the main plot, sharing the y-axis with the main plot.
+    ax_histy = fig.add_subplot(gs[0, 1], sharey=ax)
+    ax_histy.hist(data, bins=bin_edges, orientation='horizontal')
+
+    # Make sure the marginal plot's y-axis ticks don't overlap with the main plot.
+    plt.setp(ax_histy.get_yticklabels(), visible=False)
+    x_limit = [0, unique_time_values[-1]]
+    ax.set_xlim(x_limit)
+    y_limit_photons = [0, round(np.max(data, axis=None)+10**order, -order)]
+    ax.set_ylim(y_limit_photons)
+
+    if fit_line:
+        return ax, slope, intercept
+
+    return ax

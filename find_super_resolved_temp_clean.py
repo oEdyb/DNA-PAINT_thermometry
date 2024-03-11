@@ -22,7 +22,7 @@ import argparse
 from ast import literal_eval
 
 #####################################################################
-
+# TODO: Print all relevant measurements at the end of this script.
 def run_analysis(selected_file, working_folder, step, params):
     number_of_frames = params.get('number_of_frames', 0)
     exp_time = params.get('exposure_time', 0)
@@ -46,33 +46,34 @@ def run_analysis(selected_file, working_folder, step, params):
     verbose_flag = params.get('verbose', 0)
     lpx_filter = params.get('lpx_filter', 0)
     lpy_filter = params.get('lpy_filter', 0)
+    mask_singles = params.get('mask_singles', 0)
 
-    print("Analysis Parameters:")
-    print(f"Selected File: {selected_file}")
-    print(f"Working Folder: {working_folder}")
-    print(f"Step: {step}")
-    print(f"Verbose: {verbose_flag}")
-    print(f"lpy filter: {lpx_filter}")
-    print(f"lpx filter: {lpy_filter}")
-    print(f"Number of Frames: {number_of_frames}")
-    print(f"Exposure Time: {exp_time}")
-    print(f"Docking Sites: {docking_sites}")
-    print(f"NP Flag: {NP_flag}")
-    print(f"Pixel Size: {pixel_size}")
-    print(f"Pick Size: {pick_size}")
-    print(f"Radius to Average: {radius_of_pick_to_average}")
-    print(f"Initial threshold: {th}")
-    print(f"Plot Flag: {plot_flag}")
-    print(f"Photons Threshold: {photons_threshold}")
-    print(f"Background Level: {background_level}")
-    print(f"Mask Level: {mask_level}")
-    print(f"Range: {rango}")
-    print(f"Initial Parameters: {initial_params}")
-    print(f"Likelihood Error Parameter: {likelihood_err_param}")
-    print(f"Optimization Display Flag: {opt_display_flag}")
-    print(f"Hyper Exponential Flag: {hyper_exponential_flag}")
-    print(f"Recursive Flag: {recursive_flag}")
-    print(f"Rectangles Flag: {rectangles_flag}")
+    # print("Analysis Parameters:")
+    # print(f"Selected File: {selected_file}")
+    # print(f"Working Folder: {working_folder}")
+    # print(f"Step: {step}")
+    # print(f"Verbose: {verbose_flag}")
+    # print(f"lpy filter: {lpx_filter}")
+    # print(f"lpx filter: {lpy_filter}")
+    # print(f"Number of Frames: {number_of_frames}")
+    # print(f"Exposure Time: {exp_time}")
+    # print(f"Docking Sites: {docking_sites}")
+    # print(f"NP Flag: {NP_flag}")
+    # print(f"Pixel Size: {pixel_size}")
+    # print(f"Pick Size: {pick_size}")
+    # print(f"Radius to Average: {radius_of_pick_to_average}")
+    # print(f"Initial threshold: {th}")
+    # print(f"Plot Flag: {plot_flag}")
+    # print(f"Photons Threshold: {photons_threshold}")
+    # print(f"Background Level: {background_level}")
+    # print(f"Mask Level: {mask_level}")
+    # print(f"Range: {rango}")
+    # print(f"Initial Parameters: {initial_params}")
+    # print(f"Likelihood Error Parameter: {likelihood_err_param}")
+    # print(f"Optimization Display Flag: {opt_display_flag}")
+    # print(f"Hyper Exponential Flag: {hyper_exponential_flag}")
+    # print(f"Recursive Flag: {recursive_flag}")
+    # print(f"Rectangles Flag: {rectangles_flag}")
 
 
     if step[0] == 'True':
@@ -101,10 +102,10 @@ def run_analysis(selected_file, working_folder, step, params):
     if step[2] == 'True':
         # run step
         list_of_files_step3 = os.listdir(step3_working_folder)
-        all_traces_filename = [f for f in list_of_files_step3 if re.search('^TRACES_ALL_',f)][0]
+        all_traces_filename = [f for f in list_of_files_step3 if re.search('^TRACES_ALL',f)][0]
         step3.calculate_kinetics(exp_time, photons_threshold, background_level, \
-                                 step3_working_folder, \
-                                 all_traces_filename, mask_level, verbose_flag)
+                                 step2_working_folder, \
+                                 all_traces_filename, mask_level, mask_singles, number_of_frames, verbose_flag)
     else:
         print('\nSTEP 3 was not executed.')
     

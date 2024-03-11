@@ -13,6 +13,7 @@ likelihood, -log(likelihood) is minimized.
 
 Fribourg, Switzerland
 """
+import pickle
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -45,8 +46,8 @@ def estimate_binding_unbinding_times(exp_time, rango, working_folder, \
         
     list_of_files = os.listdir(working_folder)
     
-    t_on_datafile = [f for f in list_of_files if re.search('t_on_TRACES_ALL', f)][0]
-    t_off_datafile = [f for f in list_of_files if re.search('t_off_TRACES_ALL', f)][0]
+    t_on_datafile = [f for f in list_of_files if re.search('t_on', f)][0]
+    t_off_datafile = [f for f in list_of_files if re.search('t_off', f)][0]
 
     t_on_full_filepath = os.path.join(working_folder, t_on_datafile)
     t_off_full_filepath = os.path.join(working_folder, t_off_datafile)
@@ -59,7 +60,7 @@ def estimate_binding_unbinding_times(exp_time, rango, working_folder, \
                                             hyper_exponential_flag, \
                                             opt_display_flag, 1, verbose_flag)
     
-    print('\nSolution for tau_on')
+    #print('\nSolution for tau_on')
     # print(solutions_on)
     
     ########################################################################
@@ -98,7 +99,7 @@ def find_best_tau_using_MLE(full_filepath, rango, exp_time, initial_params, \
     if hyper_exponential_flag:
         # bounds
         tau_short_lower_bound = 0.01
-        tau_short_upper_bound = 5
+        tau_short_upper_bound = 1
         ratio_lower_bound = 0
         ratio_upper_bound = 100
         # initial parameters, input of the minimizer
@@ -153,8 +154,8 @@ def find_best_tau_using_MLE(full_filepath, rango, exp_time, initial_params, \
         return 
     # define bounds of the minimization problem (any bounded method)
     # TODO: Potential problem with the bounds here.
-    bnds = opt.Bounds([0.01, tau_short_lower_bound, ratio_lower_bound], \
-                      [factor*100, tau_short_upper_bound, ratio_upper_bound]) # [lower bound array], [upper bound array]
+    bnds = opt.Bounds([0, tau_short_lower_bound, ratio_lower_bound], \
+                      [np.inf, tau_short_upper_bound, np.inf]) # [lower bound array], [upper bound array]
     
     # now minimize
     if verbose_flag:
@@ -165,6 +166,7 @@ def find_best_tau_using_MLE(full_filepath, rango, exp_time, initial_params, \
     # that is real_binding_time > short_on_time
     constr_array = np.array([1, -1, 0])
     constr = opt.LinearConstraint(constr_array, 0, np.inf, keep_feasible = True)
+    sample = sample[~np.isnan(sample)]
     if hyper_exponential_flag:
         out_estimator = opt.minimize(log_likelihood_hyper_with_error, 
                                     initial_params, 
@@ -178,19 +180,22 @@ def find_best_tau_using_MLE(full_filepath, rango, exp_time, initial_params, \
                                                 'gtol': 1e-16,
                                                 'disp':opt_display_flag})
     else:
+        # Currently fitting straight line (hessian = 0)
         out_estimator = opt.minimize(log_likelihood_mono_with_error, 
-                                    initial_params, 
+                                    initial_params,
                                     args = (sample), 
                                     method = 'trust-constr',
                                     bounds = bnds,
-                                    constraints = constr,
+                                    # hessp= lambda x, p, *args: np.zeros(shape=len(x)),
+                                    constraints=constr,
                                     callback = callback_fun_trust,
                                     options = {'maxiter':2000, 
                                                 'xtol':1e-16,
                                                 'gtol': 1e-16,
                                                 'disp':opt_display_flag})
     road_to_convergence = np.array(road_to_convergence)
-    print(out_estimator)
+    if verbose_flag:
+        print(out_estimator)
     
     # assign variables
     tau_long_MLE = out_estimator.x[0]
@@ -201,16 +206,16 @@ def find_best_tau_using_MLE(full_filepath, rango, exp_time, initial_params, \
     tau_short_amplitude = 1/(ratio_MLE + 1)*(1/tau_short_MLE)
 
 
-    print('\nInitial values were:')
-    print('tau_long', tau_long_init, ', tau_short', tau_short_init, \
-          ', ratio', set_ratio)
+    #print('\nInitial values were:')
+    #print('tau_long', tau_long_init, ', tau_short', tau_short_init, \
+    #      ', ratio', set_ratio)
     
-    print('\nFit values are:')
-    print('tau_long %.3f, tau_short %.3f, ratio %.4f' % \
-          (tau_long_MLE, tau_short_MLE, ratio_MLE))
+    #print('\nFit values are:')
+    #print('tau_long %.3f, tau_short %.3f, ratio %.4f' % \
+    #      (tau_long_MLE, tau_short_MLE, ratio_MLE))
     
-    print('tau_long_amplitude %.3f, tau_short_amplitude %.3f' % \
-          (tau_long_amplitude, tau_short_amplitude))
+    #print('tau_long_amplitude %.3f, tau_short_amplitude %.3f' % \
+    #     (tau_long_amplitude, tau_short_amplitude))
 
     # plot output and minimization map
     plt.figure(1)
@@ -272,8 +277,8 @@ def find_best_tau_using_MLE(full_filepath, rango, exp_time, initial_params, \
     ax.set_ylabel('Normalized frequency', fontsize=20)
     ax.set_yscale('log')
     ax.set_axisbelow(True)
-    ax.set_xlim([0,10])
-    ax.set_ylim([1e-4,10])
+    ax.set_xlim([0, 10])
+    ax.set_ylim([1e-4, 10])
     plt.legend(loc='upper right', prop={'size':12})
     plt.tick_params(axis='both', which='major', labelsize=18)
     figure_name = 'binding_time_hist_MLE'
@@ -351,14 +356,14 @@ def find_best_tau_using_MLE(full_filepath, rango, exp_time, initial_params, \
     # calculate errors: 
     tau_long_MLE_error_plus = np.abs(out_tau_on_error_estimator_plus.x[0] - tau_long_MLE)
     tau_long_MLE_error_minus = np.abs(out_tau_on_error_estimator_minus.x[0] - tau_long_MLE)
-    print('\nError on tau_long (s): +%.3f / -%.3f' % (tau_long_MLE_error_plus, tau_long_MLE_error_minus))
+    #print('\nError on tau_long (s): +%.3f / -%.3f' % (tau_long_MLE_error_plus, tau_long_MLE_error_minus))
     if hyper_exponential_flag:
         tau_short_MLE_error_plus = np.abs(out_tau_short_error_estimator_plus.x[0] - tau_short_MLE)
         tau_short_MLE_error_minus = np.abs(out_tau_short_error_estimator_minus.x[0] - tau_short_MLE)
-        print('Error on tau_short (s): +%.3f / -%.3f' % (tau_short_MLE_error_plus, tau_short_MLE_error_minus))
+    #    print('Error on tau_short (s): +%.3f / -%.3f' % (tau_short_MLE_error_plus, tau_short_MLE_error_minus))
     ratio_MLE_error_plus = np.abs(out_ratio_error_estimator_plus.x[0] - ratio_MLE)
     ratio_MLE_error_minus = np.abs(out_ratio_error_estimator_minus.x[0] - ratio_MLE)
-    print('Error on ratio (s): +%.3f / -%.3f' % (ratio_MLE_error_plus, ratio_MLE_error_minus))
+    #print('Error on ratio (s): +%.3f / -%.3f' % (ratio_MLE_error_plus, ratio_MLE_error_minus))
     
     ########################################################################
     
@@ -371,8 +376,34 @@ def find_best_tau_using_MLE(full_filepath, rango, exp_time, initial_params, \
         solutions = np.array([[tau_long_MLE, tau_long_MLE_error_plus, tau_long_MLE_error_minus],
                             [0, 0, 0],
                             [ratio_MLE, ratio_MLE_error_plus, ratio_MLE_error_minus]])
-        
-    
+
+    # Summary of STEP 4
+    print("\n------ Summary of STEP 4 ------")
+    print(f"MLE Fit Value: tau_long = {tau_long_MLE:.3f} s")
+
+    if hyper_exponential_flag:
+        print(f"Initial Values: ratio = {set_ratio}, tau_short = {tau_short_init}")
+        print(f"MLE Fit Values: tau_short = {tau_short_MLE:.3f} s, ratio = {ratio_MLE:.4f}")
+        print(f"MLE Amplitude: tau_short amplitude = {tau_short_amplitude:.3f}")
+        print(f"Errors on tau_short = +{tau_short_MLE_error_plus:.3f} / -{tau_short_MLE_error_minus:.3f} s")
+        print(f"Errors on ratio = +{ratio_MLE_error_plus:.3f} / -{ratio_MLE_error_minus:.3f}")
+
+    print(f"Error on tau_long = +{tau_long_MLE_error_plus:.3f} / -{tau_long_MLE_error_minus:.3f} s")
+    print(f"Histogram bin size: {bin_size}")
+
+    parameters = {"tau_long": tau_long_MLE,
+                  "tau_long_error_plus": tau_long_MLE_error_plus,
+                  "tau_long_error_minus": tau_long_MLE_error_minus}
+    if hyper_exponential_flag:
+        parameters["tau_short"] = tau_short_MLE
+        parameters["tau_short_error_plus"] = tau_short_MLE_error_plus
+        parameters["tau_short_error_minus"] = tau_short_MLE_error_minus
+
+    aux_folder = os.path.dirname(full_filepath)
+    dict_path = os.path.join(aux_folder, "MLE_parameters.pkl")
+    with open(dict_path, 'wb') as f:
+        pickle.dump(parameters, f)
+    print("Data analysis and optimization completed. Results and figures saved.")
     ########################################################################
     
     # uncomment the following lines to calculate and plot the

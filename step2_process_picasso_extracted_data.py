@@ -37,7 +37,10 @@ Warning: the program is coded to follow filename convention of the script
 
 """
 import os
-os.environ["OMP_NUM_THREADS"] = '2'
+
+import scipy.signal
+
+os.environ["OMP_NUM_THREADS"] = '1'
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib_scalebar.scalebar import ScaleBar
@@ -46,10 +49,11 @@ import tkinter as tk
 import tkinter.filedialog as fd
 import re
 from auxiliary_functions import detect_peaks, distance, fit_linear, \
-    perpendicular_distance, manage_save_directory
+    perpendicular_distance, manage_save_directory, plot_vs_time_with_hist
 from sklearn.mixture import GaussianMixture
 import time
 from auxiliary_functions_gaussian import plot_gaussian_2d
+import scipy
     
 plt.ioff()
 plt.close("all")
@@ -66,7 +70,7 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
     
     total_time_sec = number_of_frames*exp_time # in sec
     total_time_min = total_time_sec/60 # in min
-    print('Total time %.1f min' % total_time_min)
+    #print('Total time %.1f min' % total_time_min)
         
     # create folder to save data
     # global figures folder
@@ -81,7 +85,7 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
 
     # list files
     list_of_files = os.listdir(working_folder)
-    list_of_files = [f for f in list_of_files if re.search('.dat',f)]
+    list_of_files = [f for f in list_of_files if re.search('.dat', f)]
     list_of_files.sort()
     if NP_flag:
         list_of_files_origami = [f for f in list_of_files if re.search('COMBINED',f)]
@@ -138,7 +142,7 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
     # how many picks?
     pick_number = np.unique(pick_list)
     total_number_of_picks = len(pick_number)
-    print('Total picks', total_number_of_picks)
+    #print('Total picks', total_number_of_picks)
     
     # allocate arrays for statistics
     locs_of_picked = np.zeros(total_number_of_picks)
@@ -158,13 +162,14 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
     # set number of bins for FINE histograming 
     N = int(2*pick_size*pixel_size*1000/10)
     hist_2D_bin_size = pixel_size*1000*pick_size/N # this should be around 5 nm
-    print('2D histogram bin size', hist_2D_bin_size, 'nm')
+    #print('2D histogram bin size', hist_2D_bin_size, 'nm')
     
     ########################################################################
     ########################################################################
     ########################################################################
     
     # data assignment per pick
+    # TODO: If it doesn't find the correct amount of binding sites either discard or find less.
     for i in range(total_number_of_picks):
         pick_id = pick_number[i]
         if verbose_flag:
@@ -201,7 +206,11 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
             bins_COARSE = 1
         else:
             bins_COARSE = 20
-        while total_peaks_found != docking_sites:
+        docking_sites_temp = docking_sites
+        while total_peaks_found != docking_sites_temp:
+            if total_peaks_found < docking_sites:
+                #docking_sites_temp = int(docking_sites - 1)
+                pass
             # make COARSE 2D histogram of locs
             # number of bins is arbitrary, determined after trial and error
             x_min = min(x_position_of_picked)
@@ -230,7 +239,7 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
             if threshold_COARSE > 5000:
                 # this MAX value is arbitrary
                 break
-        if docking_sites != 1:
+        if docking_sites_temp != 1:
             if verbose_flag:
                 print('threshold_COARSE reached', threshold_COARSE)
                 print(total_peaks_found, 'total peaks found\n')
@@ -247,8 +256,10 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
         # array where traces are going to be saved
         all_traces_per_pick = np.zeros(number_of_frames)
         inv_cov_init = []
+        if docking_sites_temp < docking_sites:
+            print(f'Did not find {docking_sites} docking sites for origami nr {i}.')
         for j in range(total_peaks_found):
-            if docking_sites != 1:
+            if docking_sites_temp != 1:
                 if verbose_flag:
                     print('Binding site %d of %d' % (j+1, total_peaks_found))
             index_x_peak = index_peaks[1][j] # first element of the tuple are rows
@@ -289,15 +300,23 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
             all_traces = np.vstack([all_traces, trace])
 
             # First guess of inverse of cov matrix for GMM
-            inv_cov_init.append(np.linalg.inv(np.cov(np.array([x_position_of_picked_filtered, y_position_of_picked_filtered]))))
+            try:
+                inv_cov_init.append(np.linalg.inv(np.cov(np.array([x_position_of_picked_filtered, y_position_of_picked_filtered]))))
+            except:
+                inv_cov_init = 'False'
         # delete first fake and empty trace (needed to make the proper array)
         all_traces_per_pick = np.delete(all_traces, 0, axis = 0)
         all_traces_per_pick = all_traces_per_pick.T
         # save traces per pick
         if peaks_flag:
-            new_filename = 'TRACE_pick_%02d_%s.dat' % (i, frame_file[:-10])
-            new_filepath = os.path.join(traces_per_pick_folder, new_filename)
-            np.savetxt(new_filepath, all_traces_per_pick, fmt='%05d')
+            try:
+                new_filename = 'TRACE_pick_%02d_%s.dat' % (i, frame_file[:-10])
+                new_filepath = os.path.join(traces_per_pick_folder, new_filename)
+                np.savetxt(new_filepath, trace, fmt='%05d')
+            except:
+                new_filename = 'TRACE_pick_%02d.dat' % i
+                new_filepath = os.path.join(traces_per_pick_folder, new_filename)
+                np.savetxt(new_filepath, trace, fmt='%05d')
         
         # get NP coords in um
         if NP_flag:
@@ -326,7 +345,7 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
         perpendicular_dist_of_picked = perpendicular_distance(slope, intercept, x_position_of_picked, y_position_of_picked)
         # Filtering the localizations based on the perpendicular distance from the fitted line.
         # Relax the distance a little when Rsquared is large.
-        filter_dist = 40e-3/Rsquared  # Arbitrary at the moment.
+        filter_dist = 50e-3/Rsquared  # Arbitrary at the moment.
         x_filtered_perpendicular = x_position_of_picked[perpendicular_dist_of_picked < filter_dist]
         y_filtered_perpendicular = y_position_of_picked[perpendicular_dist_of_picked < filter_dist]
 
@@ -378,28 +397,29 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
         # TODO: Return sx and sy relative the fitted line.
         # TODO: Make the algorithm guess near the fitted line?
 
-        try:
-            # Fitting the GMM.
-            start_time = time.time()
-            x_filtered, y_filtered = x_filtered_perpendicular, y_filtered_perpendicular
+        if plot_flag:
+            try:
+                # Fitting the GMM.
+                start_time = time.time()
+                x_filtered, y_filtered = x_filtered_perpendicular, y_filtered_perpendicular
 
-            # gmm = GaussianMixture(n_components=3, covariance_type='full', means_init=np.array([cm_binding_sites_x, cm_binding_sites_y]).T, max_iter=100)
-            gmm = GaussianMixture(n_components=3, covariance_type='full',
-                                  n_init=10, max_iter=100, precisions_init=inv_cov_init)
-            gmm.fit(X=np.array([x_filtered, y_filtered]).T)
+                # gmm = GaussianMixture(n_components=3, covariance_type='full', means_init=np.array([cm_binding_sites_x, cm_binding_sites_y]).T, max_iter=100)
+                gmm = GaussianMixture(n_components=3, covariance_type='full',
+                                      n_init=10, max_iter=100, precisions_init=inv_cov_init)
+                gmm.fit(X=np.array([x_filtered, y_filtered]).T)
 
-            # Labeling the standard deviations according to ascending distances.
-            sx_labeled = gmm.covariances_[:, 0, 0][ranks]
-            sy_labeled = gmm.covariances_[:, 1, 1][ranks]
-            gmm_stds.append([np.append(sx_labeled.reshape(-1, 1), sy_labeled.reshape(-1, 1), axis=1)])
-            gmm_stds_x = np.append(gmm_stds_x, gmm.covariances_[:, 0, 0][ranks])
-            gmm_stds_y = np.append(gmm_stds_y, gmm.covariances_[:, 1, 1][ranks])
+                # Labeling the standard deviations according to ascending distances.
+                sx_labeled = gmm.covariances_[:, 0, 0][ranks]
+                sy_labeled = gmm.covariances_[:, 1, 1][ranks]
+                gmm_stds.append([np.append(sx_labeled.reshape(-1, 1), sy_labeled.reshape(-1, 1), axis=1)])
+                gmm_stds_x = np.append(gmm_stds_x, gmm.covariances_[:, 0, 0][ranks])
+                gmm_stds_y = np.append(gmm_stds_y, gmm.covariances_[:, 1, 1][ranks])
 
-            # Plotting
-            aux_folder = manage_save_directory(figures_per_pick_folder, 'GMM')
-            figure_name = 'GMM_%02d' % i
-            figure_path = os.path.join(aux_folder, '%s.png' % figure_name)
-            if plot_flag:
+                # Plotting
+                aux_folder = manage_save_directory(figures_per_pick_folder, 'GMM')
+                figure_name = 'GMM_%02d' % i
+                figure_path = os.path.join(aux_folder, '%s.png' % figure_name)
+
                 fig, ax = plt.subplots(1, 1)
                 ax.scatter(x_filtered, y_filtered, s=0.8)
                 ax.scatter(gmm.means_[:, 0], gmm.means_[:, 1], s=10, c='r')
@@ -409,10 +429,11 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
                                      gmm.means_[m, 1], 1, np.sqrt(gmm.covariances_[m][0, 0]),
                                      np.sqrt(gmm.covariances_[m][1, 1]), rho, 0, color='r')
                 plt.savefig(figure_path, dpi = 100, bbox_inches='tight')
-            if verbose_flag:
-                print("Total execution time of GMM: --- %s seconds ---" % (time.time() - start_time))
-        except:
-            pass
+                if verbose_flag:
+                    print("Total execution time of GMM: --- %s seconds ---" % (time.time() - start_time))
+            except:
+                pass
+
 
 
 
@@ -646,7 +667,7 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
             plt.savefig(figure_path, dpi = 300, bbox_inches='tight')
             plt.close()
             
-        if plot_flag and (docking_sites != 1):
+        if plot_flag and (docking_sites_temp != 1):
             # plot COARSE 2d image
             plt.figure(4)
             plt.imshow(z_hist_COARSE, interpolation='none', origin='lower',
@@ -670,7 +691,7 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
             plt.savefig(figure_path, dpi = 300, bbox_inches='tight')
             plt.close()
             
-        if plot_flag and (docking_sites != 1):
+        if plot_flag and (docking_sites_temp != 1):
             # plot BINARY 2d image
             plt.figure(5)
             plt.imshow(detected_peaks, interpolation='none', origin='lower', cmap = 'binary',
@@ -695,7 +716,6 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
     number_of_bins = 16
     hist_range = [25, 160]
     bin_size = (hist_range[-1] - hist_range[0])/number_of_bins
-    print('\nRelative position NP-sites bin size', bin_size)
     position_bins, bin_edges = np.histogram(positions_concat_NP, bins = number_of_bins, \
                                             range = hist_range)
     bin_centers = bin_edges[:-1] + bin_size/2
@@ -712,7 +732,7 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
     number_of_bins = 16
     hist_range = [25, 160]
     bin_size = (hist_range[-1] - hist_range[0])/number_of_bins
-    print('\nRelative position between binding sites bin size', bin_size)
+    #print('\nRelative position between binding sites bin size', bin_size)
     position_bins, bin_edges = np.histogram(positions_concat_origami, bins = number_of_bins, \
                                             range = hist_range)
     bin_centers = bin_edges[:-1] + bin_size/2
@@ -743,39 +763,72 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
     figure_path = os.path.join(figures_folder, '%s.png' % figure_name)
     plt.savefig(figure_path, dpi = 300, bbox_inches='tight')
     plt.close()
+
+    # Sorting time.
+    index_concat = np.argsort(time_concat)
+    ordered_time_concat = time_concat[index_concat]
     
-    ## PHOTONS
-    fig, ax = plt.subplots(1, 1)
-    ax.hist(time_concat, bins=len(bin_centers_minutes), weights=photons_concat, histtype='step')
-    ax.set_xlabel('Time (min)')
-    ax.set_ylabel('Photons')
-    ax.set_title('Photons vs time')
-    x_limit = [0, total_time_min]
-    plt.xlim(x_limit)
-    figure_name = 'photons_vs_time'
-    figure_path = os.path.join(figures_folder, '%s.png' % figure_name)
-    plt.savefig(figure_path, dpi = 300, bbox_inches='tight')
-    plt.close()
 
-    new_filename = 'PHOTONS_%s.dat' % (frame_file[:-10])
-    new_filepath = os.path.join(kinetics_folder, new_filename)
-    np.savetxt(new_filepath, photons_concat)
 
-    new_filename = 'TIME_%s.dat' % (frame_file[:-10])
-    new_filepath = os.path.join(kinetics_folder, new_filename)
-    np.savetxt(new_filepath, time_concat)
+
+
+
+    # Print the sum of the photons.
+    photons_sum = np.sum(photons_concat, axis=None)
+    photons_mean = np.mean(photons_concat, axis=None)
+
+    try:
+        new_filename = 'PHOTONS_%s.dat' % (frame_file[:-10])
+        new_filepath = os.path.join(kinetics_folder, new_filename)
+        np.savetxt(new_filepath, photons_concat)
+    except:
+        new_filename = 'PHOTONS.dat'
+        new_filepath = os.path.join(kinetics_folder, new_filename)
+        np.savetxt(new_filepath, photons_concat)
+
+    try:
+        new_filename = 'TIME_%s.dat' % (frame_file[:-10])
+        new_filepath = os.path.join(kinetics_folder, new_filename)
+        np.savetxt(new_filepath, time_concat)
+    except:
+        new_filename = 'TIME.dat'
+        new_filepath = os.path.join(kinetics_folder, new_filename)
+        np.savetxt(new_filepath, time_concat)
+
     ## BACKGROUND
-    fig, ax = plt.subplots(1, 1)
-    ax.hist(time_concat, bins=len(bin_centers_minutes), weights=bkg_concat, histtype='step')
+    ax = plot_vs_time_with_hist(bkg_concat, time_concat, order = 2)
     ax.set_xlabel('Time (min)')
-    ax.set_ylabel('Background')
-    ax.set_title('Background vs time')
-    x_limit = [0, total_time_min]
-    plt.xlim(x_limit)
+    ax.set_ylabel('Total background [photons]')
+    ax.set_title('Total background received vs time.')
     figure_name = 'bkg_vs_time'
     figure_path = os.path.join(figures_folder, '%s.png' % figure_name)
     plt.savefig(figure_path, dpi = 300, bbox_inches='tight')
+    plt.show()
     plt.close()
+
+    ## Normalized HISTOGRAMS
+    mean = np.mean(photons_concat, axis=None)
+    std = np.std(photons_concat, axis=None)
+    filter_indices = np.where((np.abs(photons_concat-mean) < 3 * std))
+    fig, ax = plt.subplots(1, 1)
+    filtered_photons = photons_concat[filter_indices]
+    ax.hist([filtered_photons, bkg_concat], bins=int(len(photons_concat) / 50), stacked=True, density=True)
+    ax.set_xlabel('Photon count.')
+    ax.set_ylabel('Counts')
+    ax.set_title('Histogram of photon count.')
+    figure_name = 'photon_histogram'
+    figure_path = os.path.join(figures_folder, '%s.png' % figure_name)
+    plt.savefig(figure_path, dpi=300, bbox_inches='tight')
+    plt.show()
+
+    try:
+        new_filename = 'BKG_%s.dat' % (frame_file[:-10])
+        new_filepath = os.path.join(kinetics_folder, new_filename)
+        np.savetxt(new_filepath, bkg_concat, fmt='%05d')
+    except:
+        new_filename = 'BKG.dat'
+        new_filepath = os.path.join(kinetics_folder, new_filename)
+        np.savetxt(new_filepath, bkg_concat, fmt='%05d')
     
     ################################### save data
     
@@ -783,29 +836,35 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
     all_traces = np.delete(all_traces, 0, axis = 0)
     all_traces = all_traces.T
     # save ALL traces in one file
-    new_filename = 'TRACES_ALL_%s.dat' % (frame_file[:-10])
-    new_filepath = os.path.join(kinetics_folder, new_filename)
-    np.savetxt(new_filepath, all_traces_per_pick, fmt='%05d')
+    try:
+        new_filename = 'TRACES_ALL_%s.dat' % (frame_file[:-10])
+        new_filepath = os.path.join(kinetics_folder, new_filename)
+        np.savetxt(new_filepath, all_traces_per_pick, fmt='%05d')
+    except:
+        new_filename = 'TRACES_ALL.dat'
+        new_filepath = os.path.join(kinetics_folder, new_filename)
+        np.savetxt(new_filepath, all_traces_per_pick, fmt='%05d')
+
     # compile all traces of the image in one array
 
     # GMM stds
-    plt.figure()
-    fig, ax = plt.subplots(1, 1)
-    #ax.hist(np.sqrt(np.array(gmm_stds).reshape(-1, 2))*1e3, bins=len(gmm_stds), stacked=True, label=['s_x', 's_y'])
-    gmm_stds_total = np.concatenate((gmm_stds_x.reshape(-1, 1), gmm_stds_y.reshape(-1, 1)), axis=1)
-    ax.hist(np.sqrt(gmm_stds_total)*1e3, bins=len(gmm_stds), stacked=True, label=['s_x', 's_y'])
-    ax.set_xlabel('Standard deviation (um))')
-    ax.set_ylabel('Counts')
-    plt.legend()
-    ax.set_title('Distribution of the GMMs standard deviation.')
-    figure_name = 'GMM_stds'
-    figure_path = os.path.join(figures_folder, '%s.png' % figure_name)
-    plt.savefig(figure_path, dpi=300, bbox_inches='tight')
-    plt.close()
+    # plt.figure()
+    # fig, ax = plt.subplots(1, 1)
+    # #ax.hist(np.sqrt(np.array(gmm_stds).reshape(-1, 2))*1e3, bins=len(gmm_stds), stacked=True, label=['s_x', 's_y'])
+    # gmm_stds_total = np.concatenate((gmm_stds_x.reshape(-1, 1), gmm_stds_y.reshape(-1, 1)), axis=1)
+    # ax.hist(np.sqrt(gmm_stds_total)*1e3, bins=len(gmm_stds), stacked=True, label=['s_x', 's_y'])
+    # ax.set_xlabel('Standard deviation (um))')
+    # ax.set_ylabel('Counts')
+    # plt.legend()
+    # ax.set_title('Distribution of the GMMs standard deviation.')
+    # figure_name = 'GMM_stds'
+    # figure_path = os.path.join(figures_folder, '%s.png' % figure_name)
+    # plt.savefig(figure_path, dpi=300, bbox_inches='tight')
+    # plt.close()
 
-    new_filename = 'gmm_stds.dat'
-    new_filepath = os.path.join(gaussian_folder, new_filename)
-    np.savetxt(new_filepath, np.array(gmm_stds).reshape(-1, 2))
+    # new_filename = 'gmm_stds.dat'
+    # new_filepath = os.path.join(gaussian_folder, new_filename)
+    # np.savetxt(new_filepath, np.array(gmm_stds).reshape(-1, 2))
 
 
     # number of locs
@@ -824,6 +883,21 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
     new_filepath = os.path.join(figures_folder, new_filename)
     np.savetxt(new_filepath, data_to_save, fmt='%.1f')
 
+    # Summary information
+    summary_info = {
+        'Total Picks Processed': total_number_of_picks,
+        'Total Time (min)': total_time_min,
+        '2D Histogram Bin Size (nm)': hist_2D_bin_size,
+        'Mean Amount of Photons': photons_mean,
+        'Mean Background Signal': np.mean(bkg_concat, axis=None),
+    }
+
+    # Elegant printing of the summary
+    print("\n------ Summary of STEP 2 ------")
+    for key, value in summary_info.items():
+        print(f"{key}: {value}")
+
+    print("Data analysis and plotting completed.")
     print('\nDone with STEP 2.')
 
     return
