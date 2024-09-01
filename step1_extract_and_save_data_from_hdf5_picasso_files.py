@@ -19,7 +19,7 @@ import tkinter as tk
 import tkinter.filedialog as fd
 
 def split_hdf5(hdf5_file, folder, recursive_flag, rectangles_flag, lpx_filter,
-               lpy_filter, verbose_flag):
+               lpy_filter, verbose_flag, NP_flag):
     
     print('\nStarting STEP 1.')
     # set directories
@@ -30,7 +30,14 @@ def split_hdf5(hdf5_file, folder, recursive_flag, rectangles_flag, lpx_filter,
         list_of_files = os.listdir(folder)
         list_of_files = [f for f in list_of_files if re.search('.hdf5',f)]
         list_of_files.sort()
-    else:  
+    if NP_flag:
+        list_of_files = os.listdir(folder)
+        list_of_files = [f for f in list_of_files if re.search('NP_subtracted', f)]
+        list_of_files = [f for f in list_of_files if re.search('picked.hdf5', f)]
+        if len(list_of_files) == 2:
+            list_of_files = [list_of_files[0]]
+        list_of_files.append(video_name)
+    else:
         list_of_files = [video_name]
         
     for filename in list_of_files:
@@ -45,7 +52,7 @@ def split_hdf5(hdf5_file, folder, recursive_flag, rectangles_flag, lpx_filter,
         
             # Get the data
             data = list(f[a_group_key])
-            
+
         # allocate
         frame = np.zeros([len(data)])
         x = np.zeros([len(data)])
@@ -59,7 +66,7 @@ def split_hdf5(hdf5_file, folder, recursive_flag, rectangles_flag, lpx_filter,
         ellipticity = np.zeros([len(data)])
         net_gradient = np.zeros([len(data)])
         group = np.zeros([len(data)])
-        
+
         for i in range(len(data)):
             frame[i] = data[i][0]
             x[i] = data[i][1]
@@ -91,12 +98,21 @@ def split_hdf5(hdf5_file, folder, recursive_flag, rectangles_flag, lpx_filter,
         clean_filename = clean_filename.replace('MMStack_Pos0.ome_', '')
 
         # Filter by lpx and lpy
-        filter_index = np.where(np.logical_and(np.logical_and(lpx < lpx_filter, lpy < lpy_filter), net_gradient > 0))
+        lpx_filter_low, lpx_filter_high = (0.005, 0.5)
+        lpy_filter_low, lpy_filter_high = (0.005, 0.5)
+        # lpx_filter_low, lpx_filter_high = (0, 99)
+        # lpy_filter_low, lpy_filter_high = (0, 99)
+        filter_index = np.where((lpx > lpx_filter_low) & (lpy > lpy_filter_low) & (lpx < lpx_filter_high)
+                                & (lpy < lpy_filter_high) & (net_gradient > 800))
 
 
-
-
-        clean_filename = ''
+        if NP_flag:
+            if 'NP' in filename:
+                clean_filename = 'NP_subtracted'
+            else:
+                clean_filename = 'raw'
+        else:
+            clean_filename = ''
         # locs
         data_to_save = frame[filter_index]
         new_filename = clean_filename + '_frame.dat'
@@ -110,6 +126,34 @@ def split_hdf5(hdf5_file, folder, recursive_flag, rectangles_flag, lpx_filter,
         new_filepath = os.path.join(save_folder, new_filename)
         np.savetxt(new_filepath, data_to_save, fmt='%.3f')
         link_files_dict['positions'] = new_filename
+
+        # sx, sy
+        data_to_save = np.asarray([sx[filter_index], sy[filter_index]]).T
+        new_filename = clean_filename + '_sxy.dat'
+        new_filepath = os.path.join(save_folder, new_filename)
+        np.savetxt(new_filepath, data_to_save, fmt='%.3f')
+        link_files_dict['std'] = new_filename
+
+        # lpx, lpy
+        data_to_save = np.asarray([lpx[filter_index], lpy[filter_index]]).T
+        new_filename = clean_filename + '_lpxy.dat'
+        new_filepath = os.path.join(save_folder, new_filename)
+        np.savetxt(new_filepath, data_to_save, fmt='%.3f')
+        link_files_dict['lp'] = new_filename
+
+        # ellipticity
+        data_to_save = ellipticity[filter_index]
+        new_filename = clean_filename + '_ellipticity.dat'
+        new_filepath = os.path.join(save_folder, new_filename)
+        np.savetxt(new_filepath, data_to_save, fmt='%.1f')
+        link_files_dict['ellipticity'] = new_filename
+
+        # net gradient
+        data_to_save = net_gradient[filter_index]
+        new_filename = clean_filename + '_netgrad.dat'
+        new_filepath = os.path.join(save_folder, new_filename)
+        np.savetxt(new_filepath, data_to_save, fmt='%.1f')
+        link_files_dict['netgrad'] = new_filename
 
         # photons
         data_to_save = photons[filter_index]

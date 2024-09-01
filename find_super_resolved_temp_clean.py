@@ -12,6 +12,9 @@ import os
 import re
 import tkinter as tk
 import tkinter.filedialog as fd
+
+import numpy as np
+
 # from auxiliary_functions import save_parameters
 import step1_extract_and_save_data_from_hdf5_picasso_files as step1
 import step2_process_picasso_extracted_data as step2
@@ -24,6 +27,7 @@ from ast import literal_eval
 #####################################################################
 # TODO: Print all relevant measurements at the end of this script.
 def run_analysis(selected_file, working_folder, step, params):
+
     number_of_frames = params.get('number_of_frames', 0)
     exp_time = params.get('exposure_time', 0)
     docking_sites = params.get('docking_sites', 0)
@@ -47,6 +51,7 @@ def run_analysis(selected_file, working_folder, step, params):
     lpx_filter = params.get('lpx_filter', 0)
     lpy_filter = params.get('lpy_filter', 0)
     mask_singles = params.get('mask_singles', 0)
+    photon_threshold_flag = False
 
     # print("Analysis Parameters:")
     # print(f"Selected File: {selected_file}")
@@ -75,11 +80,14 @@ def run_analysis(selected_file, working_folder, step, params):
     # print(f"Recursive Flag: {recursive_flag}")
     # print(f"Rectangles Flag: {rectangles_flag}")
 
+    # mask_level = 10
+
+
 
     if step[0] == 'True':
         # run step
         step1.split_hdf5(selected_file, working_folder, recursive_flag, rectangles_flag,
-                         lpx_filter, lpy_filter, verbose_flag)
+                         lpx_filter, lpy_filter, verbose_flag, NP_flag)
     else:
         print('\nSTEP 1 was not executed.')
         
@@ -102,10 +110,16 @@ def run_analysis(selected_file, working_folder, step, params):
     if step[2] == 'True':
         # run step
         list_of_files_step3 = os.listdir(step3_working_folder)
-        all_traces_filename = [f for f in list_of_files_step3 if re.search('^TRACES_ALL',f)][0]
-        step3.calculate_kinetics(exp_time, photons_threshold, background_level, \
+        all_traces_filename = [f for f in list_of_files_step3 if re.search('TRACES_ALL',f)][0]
+        bkg_filename = [f for f in os.listdir(step2_working_folder) if re.search('bkg', f)][0]
+        photons_filename = [f for f in os.listdir(step2_working_folder) if re.search('photons', f)][0]
+        bkg = np.loadtxt(os.path.join(step2_working_folder, bkg_filename))
+        photons = np.loadtxt(os.path.join(step2_working_folder, photons_filename))
+        background_level = np.mean(bkg, axis=None)
+        step3.calculate_kinetics(exp_time, photons_threshold, background_level, photons,\
                                  step2_working_folder, \
-                                 all_traces_filename, mask_level, mask_singles, number_of_frames, verbose_flag)
+                                 all_traces_filename, mask_level, mask_singles, number_of_frames, verbose_flag,
+                                 photon_threshold_flag)
     else:
         print('\nSTEP 3 was not executed.')
     
@@ -139,5 +153,25 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     params = literal_eval(args.params)
-    run_analysis(args.selected_file, args.working_folder, args.step, params)
+    if params.get('recursive', 0):
+        for directory in os.listdir(os.path.dirname(args.working_folder)):
+            dir = os.path.join(os.path.dirname(args.working_folder), directory)
+            files = os.listdir(dir)
+
+            # Filter the files to only those containing '_picked' in their name
+            picked_files = [f for f in files if '_picked' in f]
+
+            # Sort or process to ensure consistent selection of the first file
+            picked_files.sort()
+
+            # Take the first file from the filtered list, if any
+            picked_file = picked_files[0] if picked_files else None
+            path_to_picked_file = os.path.join(dir, picked_file)
+            try:
+                run_analysis(path_to_picked_file, dir, args.step, params)
+            except:
+                print(f'An error occurred with {directory}')
+                pass
+    else:
+        run_analysis(args.selected_file, args.working_folder, args.step, params)
     print("Total execution time: --- %s seconds ---" % (time.time() - start_time))
