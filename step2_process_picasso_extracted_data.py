@@ -36,11 +36,11 @@ Warning: the program is coded to follow filename convention of the script
 "extract_and_save_data_from_hdf5_picasso_files.py".
 
 """
+# ================ IMPORT LIBRARIES ================
 import os
 
 import scipy.signal
 
-os.environ["OMP_NUM_THREADS"] = '1'
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib_scalebar.scalebar import ScaleBar
@@ -56,7 +56,8 @@ from auxiliary_functions_gaussian import plot_gaussian_2d
 import scipy
 import glob
 
-plt.ioff()
+# ================ MATPLOTLIB CONFIGURATION ================
+plt.ioff()  # Turn off interactive mode
 plt.close("all")
 cmap = plt.cm.get_cmap('viridis')
 bkg_color = cmap(0)
@@ -69,11 +70,12 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
     
     print('\nStarting STEP 2.')
     
+    # ================ CALCULATE TIME PARAMETERS ================
     total_time_sec = number_of_frames*exp_time # in sec
     total_time_min = total_time_sec/60 # in min
     #print('Total time %.1f min' % total_time_min)
         
-    # create folder to save data
+    # ================ CREATE FOLDER STRUCTURE FOR SAVING DATA ================
     # global figures folder
     figures_folder = manage_save_directory(working_folder, 'figures_global')
     # figures per pick folder
@@ -83,7 +85,7 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
     traces_per_site_folder = manage_save_directory(traces_per_pick_folder, 'traces per site')
 
 
-
+    # ================ CLEAN UP EXISTING TRACE FILES ================
     for f in os.listdir(traces_per_site_folder):
         file_path = os.path.join(traces_per_site_folder, f)  # Combine directory path and file name
         if os.path.isfile(file_path):  # Ensure it's a file (not a directory)
@@ -94,7 +96,7 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
     kinetics_folder = manage_save_directory(working_folder, 'kinetics_data')
     gaussian_folder = manage_save_directory(kinetics_folder, 'gaussian_data')
 
-    # list files
+    # ================ LIST AND FILTER INPUT FILES ================
     list_of_files = os.listdir(working_folder)
     list_of_files = [f for f in list_of_files if re.search('.dat', f)]
     list_of_files.sort()
@@ -105,7 +107,7 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
         list_of_files_origami = list_of_files
     
     ##############################################################################
-    # load data
+    # ================ LOAD INPUT DATA ================
     
     # frame number, used for time estimation
     frame_file = [f for f in list_of_files_origami if re.search('_frame',f)][0]
@@ -155,6 +157,7 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
     
     ##############################################################################
     
+    # ================ INITIALIZE ANALYSIS VARIABLES ================
     # how many picks?
     pick_number = np.unique(pick_list)
     total_number_of_picks = len(pick_number)
@@ -176,15 +179,17 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
     all_traces = np.zeros(number_of_frames)
     all_traces_per_site = {}
     
+    # ================ HISTOGRAM CONFIGURATION ================
     # set number of bins for FINE histograming 
     N = int(0.7 * 2*pick_size*pixel_size*1000/10)
     hist_2D_bin_size = pixel_size*1000*pick_size/N # this should be around 5 nm
-    #print('2D histogram bin size', hist_2D_bin_size, 'nm')
-    print("Heyyy, pixel size for fine 2d hist is", hist_2D_bin_size)
+    if verbose_flag:
+        print(f'2D histogram bin size: {hist_2D_bin_size:.2f} nm')
     ########################################################################
     ########################################################################
     ########################################################################
     site_index = -1
+    # ================ BEGIN ANALYSIS OF EACH PICK ================
     # data assignment per pick
     # TODO: If it doesn't find the correct amount of binding sites either discard or find less.
     for i in range(total_number_of_picks):
@@ -192,603 +197,539 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
         if verbose_flag:
             print('\n---------- Pick number %d of %d\n' % (i+1, total_number_of_picks))
 
-        index_picked = np.where(pick_list == pick_id)
-        # for origami
+        # ================ EXTRACT PICK DATA ================
+        # Get data for current pick
+        index_picked = np.where(pick_list == pick_id)[0]
         frame_of_picked = frame[index_picked]
         photons_of_picked = photons[index_picked]
         bkg_of_picked = bkg[index_picked]
         x_position_of_picked = x[index_picked]
         y_position_of_picked = y[index_picked]
-        # make FINE 2D histogram of locs
+        
+        # Set boundaries for histograms
         x_min = min(x_position_of_picked)
         y_min = min(y_position_of_picked)
         x_max = x_min + pick_size*pixel_size
         y_max = y_min + pick_size*pixel_size
-        z_hist, x_hist, y_hist = np.histogram2d(x_position_of_picked, 
-                                                y_position_of_picked, 
-                                                bins = N, 
-                                                range = [[x_min, x_max], \
-                                                         [y_min, y_max]])
-        # Histogram does not follow Cartesian convention (see Notes),
-        # therefore transpose z_hist for visualization purposes.
+        hist_bounds = [[x_min, x_max], [y_min, y_max]]
+
+        # ================ CREATE FINE 2D HISTOGRAM ================
+        z_hist, x_hist, y_hist = np.histogram2d(x_position_of_picked, y_position_of_picked, 
+                                               bins=N, range=hist_bounds)
         z_hist = z_hist.T
         x_hist_step = np.diff(x_hist)
         y_hist_step = np.diff(y_hist)
         x_hist_centers = x_hist[:-1] + x_hist_step/2
         y_hist_centers = y_hist[:-1] + y_hist_step/2
         
+        # ================ PEAK DETECTION INITIALIZATION ================
+        # Initialize variables for peak detection
         total_peaks_found = 0
         threshold_COARSE = th
-        if docking_sites == 1:
-            bins_COARSE = 1
-        else:
-            bins_COARSE = 20
+        bins_COARSE = 1 if docking_sites == 1 else 20
         docking_sites_temp = docking_sites
         site_goal = docking_sites
+        z_hist_COARSE = None
+        
+        # ================ ADAPTIVE PEAK DETECTION LOOP ================
         while total_peaks_found != site_goal:
-            if docking_sites_temp == docking_sites - 1:
-                break
-            if total_peaks_found == docking_sites - 1:
+            if docking_sites_temp == docking_sites - 1 or total_peaks_found == docking_sites - 1:
                 docking_sites_temp = docking_sites - 1
-                pass
-            # make COARSE 2D histogram of locs
-            # number of bins is arbitrary, determined after trial and error
-            x_min = min(x_position_of_picked)
-            y_min = min(y_position_of_picked)
-            x_max = x_min + pick_size*pixel_size
-            y_max = y_min + pick_size*pixel_size
-            z_hist_COARSE, x_hist_COARSE, y_hist_COARSE = np.histogram2d(x_position_of_picked, 
-                                                                         y_position_of_picked, 
-                                                                         bins = bins_COARSE,
-                                                                         range = [[x_min, x_max], \
-                                                                                  [y_min, y_max]],
-                                                                         density = True)
+                if total_peaks_found == docking_sites - 1:
+                    break
+            
+            # Make COARSE 2D histogram - only once per iteration
+            z_hist_COARSE, x_hist_COARSE, y_hist_COARSE = np.histogram2d(
+                x_position_of_picked, y_position_of_picked, 
+                bins=bins_COARSE, range=hist_bounds, density=True
+            )
             z_hist_COARSE = z_hist_COARSE.T
-            x_hist_step_COARSE = np.diff(x_hist_COARSE)
-            y_hist_step_COARSE = np.diff(y_hist_COARSE)
-            x_hist_COARSE_centers = x_hist_COARSE[:-1] + x_hist_step_COARSE/2
-            y_hist_COARSE_centers = y_hist_COARSE[:-1] + y_hist_step_COARSE/2
             z_hist_COARSE = np.where(z_hist_COARSE < threshold_COARSE, 0, z_hist_COARSE)
             
-            # peak detection for Center of Mass localization
+            # Peak detection
             detected_peaks = detect_peaks(z_hist_COARSE)
-            # find Center of Mass of locs near the peaks that were found
-            index_peaks = np.where(detected_peaks == True) # this is a tuple
+            index_peaks = np.where(detected_peaks == True)
             total_peaks_found = len(index_peaks[0])
+            
             threshold_COARSE += 5
             if threshold_COARSE > 5000:
-                # this MAX value is arbitrary
                 break
-        # TODO: Filter binding sites locations by how close to each other they are
-        #  and if they lie along the fitted line.
-        if docking_sites_temp != 1:
-            if verbose_flag:
-                print('threshold_COARSE reached', threshold_COARSE)
-                print(total_peaks_found, 'total peaks found\n')
-        if total_peaks_found == 0:
-            peaks_flag = False
-        else:
-            peaks_flag = True
-            
+                
+        # ================ VERIFY PEAK DETECTION RESULTS ================
+        peaks_flag = total_peaks_found > 0
+        
+        # ================ INITIALIZE BINDING SITE ARRAYS ================
+        # Initialize arrays for binding sites
         analysis_radius = radius_of_pick_to_average*pixel_size
         cm_binding_sites_x = np.array([])
         cm_binding_sites_y = np.array([])
         cm_std_dev_binding_sites_x = np.array([])
         cm_std_dev_binding_sites_y = np.array([])
-        # array where traces are going to be saved
         all_traces_per_pick = np.zeros(number_of_frames)
         inv_cov_init = []
-        if docking_sites_temp < docking_sites:
+        
+        if docking_sites_temp < docking_sites and verbose_flag:
             print(f'Did not find {docking_sites} docking sites for origami nr {i}.')
-        for j in range(total_peaks_found):
-            if docking_sites_temp != 1:
-                if verbose_flag:
-                    print('Binding site %d of %d' % (j+1, total_peaks_found))
-            index_x_peak = index_peaks[1][j] # first element of the tuple are rows
-            index_y_peak = index_peaks[0][j] # second element of the tuple are columns
-            x_peak = x_hist_COARSE_centers[index_x_peak]
-            y_peak = y_hist_COARSE_centers[index_y_peak]
-            # grab all locs inside the selected circle,
-            # circle = selected radius around the (x,y) of the detected peak
-            # 1) calculate distance of all locs with respect to the (x,y) of the peak
-            d = distance(x_position_of_picked, y_position_of_picked, x_peak, y_peak)
-            # 2) filter by the radius
-            index_inside_radius = np.where(d < analysis_radius)
-            x_position_of_picked_filtered = x_position_of_picked[index_inside_radius]
-            y_position_of_picked_filtered = y_position_of_picked[index_inside_radius]
-            # 3) calculate average position of the binding site
-            cm_binding_site_x = np.mean(x_position_of_picked_filtered)
-            cm_binding_site_y = np.mean(y_position_of_picked_filtered)
-            cm_std_dev_binding_site_x = np.std(x_position_of_picked_filtered, ddof = 1)
-            cm_std_dev_binding_site_y = np.std(y_position_of_picked_filtered, ddof = 1)
-            # print('CM binding in nm (x y): %.3f %.3f' % (cm_binding_site_x*1e3, \
-            #       cm_binding_site_y*1e3))
-            # print('std dev CM binding in nm (x y): %.3f %.3f' % (cm_std_dev_binding_site_x*1e3, \
-            #       cm_std_dev_binding_site_y*1e3))
-            # 4) save the averaged position in a new array
-            cm_binding_sites_x = np.append(cm_binding_sites_x, cm_binding_site_x)
-            cm_binding_sites_y = np.append(cm_binding_sites_y, cm_binding_site_y)
-            cm_std_dev_binding_sites_x = np.append(cm_std_dev_binding_sites_x, cm_std_dev_binding_site_x)
-            cm_std_dev_binding_sites_y = np.append(cm_std_dev_binding_sites_y, cm_std_dev_binding_site_y)
-            # 5) export the trace of the binding site
-            frame_of_picked_filtered = np.array(frame_of_picked[index_inside_radius], dtype=int)
-            photons_of_picked_filtered = photons_of_picked[index_inside_radius]
-            empty_trace = np.zeros(number_of_frames)
-            empty_trace[frame_of_picked_filtered] = photons_of_picked_filtered
-            trace = empty_trace
-            # compile traces of the pick in one array
-            all_traces_per_pick = np.vstack([all_traces_per_pick, trace])
-            # compile all traces of the image in one array
-            all_traces = np.vstack([all_traces, trace])
-
-            # First guess of inverse of cov matrix for GMM
-            try:
-                inv_cov_init.append(np.linalg.inv(np.cov(np.array([x_position_of_picked_filtered, y_position_of_picked_filtered]))))
-            except:
-                inv_cov_init = 'False'
-        # delete first fake and empty trace (needed to make the proper array)
-        all_traces_per_pick = np.delete(all_traces_per_pick, 0, axis = 0)
-        all_traces_per_pick = all_traces_per_pick.T
-        # save traces per pick
+            
+        # ================ PROCESS EACH DETECTED PEAK ================
         if peaks_flag:
+            x_hist_COARSE_centers = x_hist_COARSE[:-1] + np.diff(x_hist_COARSE)/2
+            y_hist_COARSE_centers = y_hist_COARSE[:-1] + np.diff(y_hist_COARSE)/2
+            
+            # Pre-calculate coordinates of all peaks
+            peak_coords = [(x_hist_COARSE_centers[index_peaks[1][j]], 
+                           y_hist_COARSE_centers[index_peaks[0][j]]) 
+                          for j in range(total_peaks_found)]
+            
+            for j in range(total_peaks_found):
+                if docking_sites_temp != 1 and verbose_flag:
+                    print('Binding site %d of %d' % (j+1, total_peaks_found))
+                
+                x_peak, y_peak = peak_coords[j]
+                
+                # ================ FILTER LOCALIZATIONS BY DISTANCE ================
+                # Calculate distances once
+                d = np.sqrt((x_position_of_picked - x_peak)**2 + 
+                           (y_position_of_picked - y_peak)**2)
+                
+                # Filter by radius
+                index_inside_radius = d < analysis_radius
+                x_position_filtered = x_position_of_picked[index_inside_radius]
+                y_position_filtered = y_position_of_picked[index_inside_radius]
+                
+                # ================ CALCULATE BINDING SITE STATISTICS ================
+                # Calculate stats
+                cm_binding_site_x = np.mean(x_position_filtered)
+                cm_binding_site_y = np.mean(y_position_filtered)
+                cm_std_dev_binding_site_x = np.std(x_position_filtered, ddof=1)
+                cm_std_dev_binding_site_y = np.std(y_position_filtered, ddof=1)
+                
+                # Append to arrays
+                cm_binding_sites_x = np.append(cm_binding_sites_x, cm_binding_site_x)
+                cm_binding_sites_y = np.append(cm_binding_sites_y, cm_binding_site_y)
+                cm_std_dev_binding_sites_x = np.append(cm_std_dev_binding_sites_x, cm_std_dev_binding_site_x)
+                cm_std_dev_binding_sites_y = np.append(cm_std_dev_binding_sites_y, cm_std_dev_binding_site_y)
+                
+                # ================ CREATE AND COMPILE TRACES ================
+                # Process trace data
+                frame_of_picked_filtered = frame_of_picked[index_inside_radius].astype(int)
+                photons_of_picked_filtered = photons_of_picked[index_inside_radius]
+                
+                # Vectorized trace creation
+                trace = np.zeros(number_of_frames)
+                np.add.at(trace, frame_of_picked_filtered, photons_of_picked_filtered)
+                
+                # Compile traces
+                all_traces_per_pick = np.vstack([all_traces_per_pick, trace])
+                all_traces = np.vstack([all_traces, trace])
+                
+                # ================ CALCULATE COVARIANCE MATRIX ================
+                # Calculate inverse covariance matrix for GMM
+                try:
+                    cov_data = np.array([x_position_filtered, y_position_filtered])
+                    inv_cov_init.append(np.linalg.inv(np.cov(cov_data)))
+                except:
+                    inv_cov_init = 'False'
+            
+            # ================ CLEAN UP AND SAVE TRACES ================
+            # Clean up traces data
+            all_traces_per_pick = np.delete(all_traces_per_pick, 0, axis=0)
+            all_traces_per_pick = all_traces_per_pick.T
+            
+            # Save traces per pick if peaks were found
+            if peaks_flag:
                 new_filename = 'TRACE_pick_%02d.dat' % i
                 new_filepath = os.path.join(traces_per_pick_folder, new_filename)
                 np.savetxt(new_filepath, trace, fmt='%05d')
-
-
-
         
-        # get NP coords in um
+        # ================ PROCESS NANOPARTICLE (NP) DATA ================
+        x_avg_NP = y_avg_NP = x_std_dev_NP = y_std_dev_NP = None
         if NP_flag:
-            # Filter out the locs where there's an event.
-            low_photons_indices = np.where(photons < np.mean(photons)+0.5*np.std(photons))
-            index_picked_NP = np.where(pick_list_NP == pick_id)
-            filtered_indices_NP_2 = np.intersect1d(index_picked_NP, low_photons_indices)
+            # Filter out high photon events
+            low_photons_indices = photons < (np.mean(photons) + 0.5*np.std(photons))
+            index_picked_NP = pick_list_NP == pick_id
+            filtered_indices_NP_2 = np.where(index_picked_NP & low_photons_indices)[0]
+            
             x_position_of_picked_NP = x_NP[filtered_indices_NP_2]
             y_position_of_picked_NP = y_NP[filtered_indices_NP_2]
             x_avg_NP = np.mean(x_position_of_picked_NP)
             y_avg_NP = np.mean(y_position_of_picked_NP)
-            x_std_dev_NP = np.std(x_position_of_picked_NP, ddof = 1)
-            y_std_dev_NP = np.std(y_position_of_picked_NP, ddof = 1)
-            # print them in nm
-            # print('\nCM NP in nm (x y): %.3f %.3f' % (x_avg_NP*1e3, y_avg_NP*1e3))
-            # print('std dev CM NP in nm (x y): %.3f %.3f' % (x_std_dev_NP*1e3, y_std_dev_NP*1e3))
+            x_std_dev_NP = np.std(x_position_of_picked_NP, ddof=1)
+            y_std_dev_NP = np.std(y_position_of_picked_NP, ddof=1)
+
+        # ================ FIT LINEAR DIRECTION OF BINDING SITES ================
+        if peaks_flag and len(cm_binding_sites_x) > 1:
+            x_fitted, y_fitted, slope, intercept, Rsquared = fit_linear(
+                cm_binding_sites_x, cm_binding_sites_y)
+            
+            # Calculate perpendicular distances
+            perpendicular_dist_of_picked = perpendicular_distance(
+                slope, intercept, x_position_of_picked, y_position_of_picked)
+            
+            # Filter localizations based on perpendicular distance
+            filter_dist = 45e-3  # Arbitrary value
+            perpendicular_mask = perpendicular_dist_of_picked < filter_dist
+            x_filtered_perpendicular = x_position_of_picked[perpendicular_mask]
+            y_filtered_perpendicular = y_position_of_picked[perpendicular_mask]
+            
+            # Save filtered coordinates
+            new_filename = f'xy_perpendicular_filtered_{i}.dat'
+            new_filepath = os.path.join(gaussian_folder, new_filename)
+            np.savetxt(new_filepath, np.column_stack((x_filtered_perpendicular, y_filtered_perpendicular)))
+            
+            # ================ CALCULATE NP DISTANCES ================
+            if NP_flag and peaks_flag:
+                distance_to_NP = perpendicular_distance(slope, intercept, x_avg_NP, y_avg_NP)
+                distance_to_NP_nm = distance_to_NP * 1e3
+                binding_site_radial_distance_to_NP = np.sqrt(
+                    (cm_binding_sites_x - x_avg_NP)**2 + (cm_binding_sites_y - y_avg_NP)**2)
+                binding_site_radial_distance_to_NP_nm = binding_site_radial_distance_to_NP * 1e3
         
-        # fit linear (origami direction) of the binding sites 
-        # to find the perpendicular distance to the NP
-        x_fitted, y_fitted, slope, intercept, Rsquared = fit_linear(cm_binding_sites_x, 
-                                                                    cm_binding_sites_y)
-        # distance between NP and the line fitted by the three binding sites
-        if NP_flag:
-            distance_to_NP = perpendicular_distance(slope, intercept, 
-                                                    x_avg_NP, y_avg_NP)
-            distance_to_NP_nm = distance_to_NP*1e3
-
-            binding_site_radial_distance_to_NP = np.sqrt((cm_binding_sites_x-x_avg_NP)**2 + (cm_binding_sites_y-y_avg_NP)**2)
-            binding_site_radial_distance_to_NP_nm = binding_site_radial_distance_to_NP * 1e3
-            # print('Perpendicular distance to NP: %.1f nm' % distance_to_NP_nm)
-        # TODO: Fix good distance value or add as parameter.
-        perpendicular_dist_of_picked = perpendicular_distance(slope, intercept, x_position_of_picked, y_position_of_picked)
-        # Filtering the localizations based on the perpendicular distance from the fitted line.
-        # Relax the distance a little when Rsquared is large.
-        filter_dist = 45e-3  # Arbitrary at the moment.
-        x_filtered_perpendicular = x_position_of_picked[perpendicular_dist_of_picked < filter_dist]
-        y_filtered_perpendicular = y_position_of_picked[perpendicular_dist_of_picked < filter_dist]
-
-        new_filename = 'xy_perpendicular_filtered_' + str(i) + '.dat'
-        new_filepath = os.path.join(gaussian_folder, new_filename)
-        np.savetxt(new_filepath, np.array([x_filtered_perpendicular, y_filtered_perpendicular]).T)
-
-
-        # calculate relative distances between all points
-        # ------------------ in nanometers -----------------------
-        # allocate: total size = number of detected peaks + 1 for NP
-        matrix_distance = np.zeros([total_peaks_found + 1, total_peaks_found + 1])
-        matrix_std_dev = np.zeros([total_peaks_found + 1, total_peaks_found + 1])
-        # calcualte first row of the matrix distance
-        if NP_flag:
+        # ================ CALCULATE DISTANCE MATRICES ================
+        if peaks_flag:
+            # Initialize matrices
+            matrix_distance = np.zeros([total_peaks_found + 1, total_peaks_found + 1])
+            matrix_std_dev = np.zeros([total_peaks_found + 1, total_peaks_found + 1])
+            
+            # NP to binding sites distances
+            if NP_flag and peaks_flag:
+                # Vectorized distance calculation
+                np_to_binding_distances = np.sqrt(
+                    (cm_binding_sites_x - x_avg_NP)**2 + 
+                    (cm_binding_sites_y - y_avg_NP)**2) * 1e3
+                
+                matrix_distance[0, 1:] = np_to_binding_distances
+                matrix_distance[1:, 0] = np_to_binding_distances
+                matrix_std_dev[0, 0] = max(x_std_dev_NP, y_std_dev_NP) * 1e3
+                positions_concat_NP = np.append(positions_concat_NP, np_to_binding_distances)
+            
+            # ================ CALCULATE BINDING SITE DISTANCES ================
+            # Binding site to binding site distances
+            peak_distances = np.array([])
             for j in range(total_peaks_found):
-                x_binding = cm_binding_sites_x[j]
-                y_binding = cm_binding_sites_y[j]
-                distance_between_locs_CM = distance(x_binding, y_binding, x_avg_NP, y_avg_NP)*1e3
-                matrix_distance[0, j + 1] = distance_between_locs_CM
-                matrix_distance[j + 1, 0] = distance_between_locs_CM
-                # Not inside loop?
-                matrix_std_dev[0, 0] = max(x_std_dev_NP, y_std_dev_NP)*1e3
-                positions_concat_NP = np.append(positions_concat_NP, distance_between_locs_CM)
-        # calcualte the rest of the rows of the matrix distance
-        peak_distances = np.array([])
-        for j in range(total_peaks_found):
-            x_binding_row = cm_binding_sites_x[j]
-            y_binding_row = cm_binding_sites_y[j]
-            matrix_std_dev[j + 1, j + 1] = max(cm_std_dev_binding_sites_x[j], \
-                                               cm_std_dev_binding_sites_y[j])*1e3
-            for k in range(j + 1, total_peaks_found):
-                x_binding_col = cm_binding_sites_x[k]
-                y_binding_col = cm_binding_sites_y[k]
-                distance_between_locs_CM = distance(x_binding_col, y_binding_col, \
-                                                  x_binding_row, y_binding_row)*1e3
-                matrix_distance[j + 1, k + 1] = distance_between_locs_CM
-                matrix_distance[k + 1, j + 1] = distance_between_locs_CM
-                peak_distances = np.append(peak_distances, distance_between_locs_CM)
-                positions_concat_origami = np.append(positions_concat_origami, distance_between_locs_CM)
-
-        # Assigning peak labels using the distances between the peaks.
-        peak_mean_distance = np.zeros([total_peaks_found])
-        for l in range(1, total_peaks_found+1):
-            peak_mean_distance[l-1] = np.mean(matrix_distance[l, 1:])
-        ascending_index = peak_mean_distance.argsort()
-        ranks = ascending_index.argsort()
-
-        # TODO: Need a better way of finding out if the sites are good enough
-        # TODO: Need to make sure the way of finding traces per site is good.
-        # All_traces_per_pick is [frames, picks*sites]
-        all_traces_per_site_per_pick = {}
-
-        site_index = -1
-        for h in range(total_peaks_found):
-            site_index += 1
-            trace_no_zeros = all_traces_per_pick[:, site_index][all_traces_per_pick[:, site_index] != 0]
-            all_traces_per_site_per_pick[str(ranks[h])] = all_traces_per_pick[:, site_index]
-
-            if total_peaks_found == docking_sites:
-                if str(ranks[h]) in all_traces_per_site.keys():
-                    all_traces_per_site[str(ranks[h])] = np.append(all_traces_per_site[str(ranks[h])], trace_no_zeros)
-                else:
-                    all_traces_per_site[str(ranks[h])] = trace_no_zeros
-            else:
-                pass
-
-        for index, key in enumerate(all_traces_per_site_per_pick.keys()):
-            site_trace = all_traces_per_site_per_pick[key]
-            new_filename = f'TRACE_pick_{i}_site_{int(key)}_dist_0.dat'
-            if NP_flag:
-                # TODO: Might be wrong labeling of the matrix distance.
-                new_filename = f'TRACE_pick_{i}_site_{int(key)}_dist_{round(matrix_distance[0, index+1], 2)}.dat'
-            new_filepath = os.path.join(traces_per_site_folder, new_filename)
-            np.savetxt(new_filepath, site_trace, fmt='%05d')
-
-
-        # TODO: Maybe n_init is more robust? But then we would need to change the way the stds are labeled for each peak.
-        # TODO: Return sx and sy relative the fitted line.
-        # TODO: Make the algorithm guess near the fitted line?
-
-        if plot_flag:
-            try:
-                # Fitting the GMM.
-                start_time = time.time()
-                x_filtered, y_filtered = x_filtered_perpendicular, y_filtered_perpendicular
-
-                gmm = GaussianMixture(n_components=3, covariance_type='full', means_init=np.array([cm_binding_sites_x, cm_binding_sites_y]).T, max_iter=100, precisions_init=inv_cov_init)
-                # gmm = GaussianMixture(n_components=3, covariance_type='full',
-                #                       n_init=10, max_iter=100, precisions_init=inv_cov_init)
-                gmm.fit(X=np.array([x_filtered, y_filtered]).T)
-
-                # Labeling the standard deviations according to ascending distances.
-                sx_labeled = gmm.covariances_[:, 0, 0][ranks]
-                sy_labeled = gmm.covariances_[:, 1, 1][ranks]
-                gmm_stds.append([np.append(sx_labeled.reshape(-1, 1), sy_labeled.reshape(-1, 1), axis=1)])
-                gmm_stds_x = np.append(gmm_stds_x, gmm.covariances_[:, 0, 0][ranks])
-                gmm_stds_y = np.append(gmm_stds_y, gmm.covariances_[:, 1, 1][ranks])
-
-                # Plotting
-                aux_folder = manage_save_directory(figures_per_pick_folder, 'GMM')
-                figure_name = 'GMM_%02d' % i
-                figure_path = os.path.join(aux_folder, '%s.png' % figure_name)
-
-                fig, ax = plt.subplots(1, 1)
-                ax.scatter(x_filtered, y_filtered, s=0.8)
-                ax.scatter(gmm.means_[:, 0], gmm.means_[:, 1], s=10, c='r')
-                for m in range(len(gmm.means_[:, 1])):
-                    rho = gmm.covariances_[m][0, 1] / (np.sqrt(gmm.covariances_[m][0, 0]) * np.sqrt(gmm.covariances_[m][1, 1]))
-                    plot_gaussian_2d([min(x_filtered), max(x_filtered)], [min(y_filtered), max(y_filtered)], gmm.means_[m, 0],
-                                     gmm.means_[m, 1], 1, np.sqrt(gmm.covariances_[m][0, 0]),
-                                     np.sqrt(gmm.covariances_[m][1, 1]), rho, 0, color='r')
-                plt.savefig(figure_path, dpi = 100, bbox_inches='tight')
-                if verbose_flag:
-                    print("Total execution time of GMM: --- %s seconds ---" % (time.time() - start_time))
-            except:
-                pass
-
-
-
-
-
-        
-        # designed distances
-        # asymmetric origami (fourth origami): 
-        #   - 136 nm between ends
-        #   - 83 nm between center and far end
-        #   - 54 nm between center and closer end
-        # symmetric origami (third and fifth origami): 
-        #   - 125 nm between ends
-        #   - 54 nm between centers and far end
-        #   - 18 nm between the two center peaks
-        # print(matrix_distance)
-        # print(matrix_std_dev)
-        
-        # plot matrix distance
-        if plot_flag:
-            plt.figure(10)
-            plt.imshow(matrix_distance, interpolation='none', cmap='spring')
-            ax = plt.gca()
-            for l in range(matrix_distance.shape[0]):
-                for m in range(matrix_distance.shape[1]):
-                    if l == m:
-                        ax.text(m, l, '-' ,
-                            ha="center", va="center", color=[0,0,0], 
-                            fontsize = 18)
+                x_binding_row = cm_binding_sites_x[j]
+                y_binding_row = cm_binding_sites_y[j]
+                matrix_std_dev[j + 1, j + 1] = max(
+                    cm_std_dev_binding_sites_x[j], cm_std_dev_binding_sites_y[j]) * 1e3
+                
+                for k in range(j + 1, total_peaks_found):
+                    x_binding_col = cm_binding_sites_x[k]
+                    y_binding_col = cm_binding_sites_y[k]
+                    distance_between_locs_CM = np.sqrt(
+                        (x_binding_col - x_binding_row)**2 + 
+                        (y_binding_col - y_binding_row)**2) * 1e3
+                    
+                    matrix_distance[j + 1, k + 1] = distance_between_locs_CM
+                    matrix_distance[k + 1, j + 1] = distance_between_locs_CM
+                    peak_distances = np.append(peak_distances, distance_between_locs_CM)
+                    positions_concat_origami = np.append(positions_concat_origami, distance_between_locs_CM)
+            
+            # ================ LABEL BINDING SITES ================
+            # Assigning peak labels using distances
+            peak_mean_distance = np.zeros(total_peaks_found)
+            for l in range(1, total_peaks_found+1):
+                peak_mean_distance[l-1] = np.mean(matrix_distance[l, 1:])
+            
+            ascending_index = peak_mean_distance.argsort()
+            ranks = ascending_index.argsort()
+            
+            # ================ PROCESS TRACES PER SITE ================
+            all_traces_per_site_per_pick = {}
+            site_index = -1
+            
+            for h in range(total_peaks_found):
+                site_index += 1
+                trace = all_traces_per_pick[:, site_index]
+                trace_no_zeros = trace[trace != 0]
+                all_traces_per_site_per_pick[str(ranks[h])] = trace
+                
+                if total_peaks_found == docking_sites:
+                    if str(ranks[h]) in all_traces_per_site:
+                        all_traces_per_site[str(ranks[h])] = np.append(all_traces_per_site[str(ranks[h])], trace_no_zeros)
                     else:
-                        ax.text(m, l, '%.0f' % matrix_distance[l, m],
-                            ha="center", va="center", color=[0,0,0], 
-                            fontsize = 18)
-            ax.xaxis.tick_top()
-            ax.set_xticks(np.array(range(matrix_distance.shape[1])))
-            ax.set_yticks(np.array(range(matrix_distance.shape[0])))
-            axis_string = ['NP']
-            for j in range(total_peaks_found):
-                axis_string.append('Site %d' % (j+1))
-            ax.set_xticklabels(axis_string)
-            ax.set_yticklabels(axis_string)
-            aux_folder = manage_save_directory(figures_per_pick_folder, 'matrix_distance')
-            figure_name = 'matrix_distance_%02d' % i
-            figure_path = os.path.join(aux_folder, '%s.png' % figure_name)
-            plt.savefig(figure_path, dpi = 100, bbox_inches='tight')
-            plt.close()
+                        all_traces_per_site[str(ranks[h])] = trace_no_zeros
+            
+            # ================ SAVE TRACES PER SITE ================
+            for index, key in enumerate(all_traces_per_site_per_pick.keys()):
+                site_trace = all_traces_per_site_per_pick[key]
+                dist_value = 0 if not NP_flag else round(matrix_distance[0, index+1], 2)
+                new_filename = f'TRACE_pick_{i}_site_{int(key)}_dist_{dist_value}.dat'
+                new_filepath = os.path.join(traces_per_site_folder, new_filename)
+                np.savetxt(new_filepath, site_trace, fmt='%05d')
         
-            # plot matrix of max std dev    
-            plt.figure(11)
-            plt.imshow(matrix_std_dev, interpolation='none', cmap='spring')
-            ax = plt.gca()
-            for l in range(matrix_distance.shape[0]):
-                for m in range(matrix_distance.shape[1]):
-                    if not l == m:
-                        ax.text(m, l, '-' ,
-                            ha="center", va="center", color=[0,0,0], 
-                            fontsize = 18)
-                    else:
-                        ax.text(m, l, '%.0f' % matrix_std_dev[l, m],
-                            ha="center", va="center", color=[0,0,0], 
-                            fontsize = 18)
-            ax.xaxis.tick_top()
-            ax.set_xticks(np.array(range(matrix_distance.shape[1])))
-            ax.set_yticks(np.array(range(matrix_distance.shape[0])))
-            axis_string = ['NP']
-            for j in range(total_peaks_found):
-                axis_string.append('Site %d' % (j+1))
-            ax.set_xticklabels(axis_string)
-            ax.set_yticklabels(axis_string)
-            aux_folder = manage_save_directory(figures_per_pick_folder,'matrix_std_dev')
-            figure_name = 'matrix_std_dev_%02d' % i
-            figure_path = os.path.join(aux_folder, '%s.png' % figure_name)
-            plt.savefig(figure_path, dpi = 100, bbox_inches='tight')
-            plt.close()
-        
-        # plots of the binding sites
+        # ================ COMPILE DATA FOR HISTOGRAMS ================
         photons_concat = np.concatenate([photons_concat, photons_of_picked])
         bkg_concat = np.concatenate([bkg_concat, bkg_of_picked])
         frame_concat = np.concatenate([frame_concat, frame_of_picked])
         locs_of_picked[i] = len(frame_of_picked)
+        
+        # ================ CREATE TIME HISTOGRAM ================
         hist_range = [0, number_of_frames]
         bin_size = (hist_range[-1] - hist_range[0])/number_of_bins
-        locs_of_picked_vs_time[i,:], bin_edges = np.histogram(frame_of_picked, bins = number_of_bins, range = hist_range)
+        locs_of_picked_vs_time[i,:], bin_edges = np.histogram(
+            frame_of_picked, bins=number_of_bins, range=hist_range)
         bin_centers = bin_edges[:-1] + bin_size/2
-        bin_centers_minutes = bin_centers*exp_time/60  
-        # plot when the pick was bright vs time
+        bin_centers_minutes = bin_centers*exp_time/60
+        
+        # ================ GENERATE PICK PLOTS ================
         if plot_flag:
+            # Plot when the pick was bright vs time
             plt.figure()
-            # plt.plot(bin_centers, locs_of_picked_vs_time, label = 'Pick %04d' % i)
-            plt.step(bin_centers_minutes, locs_of_picked_vs_time[i,:], where = 'mid', label = 'Pick %04d' % i)
-            # plt.legend(loc='upper right')
+            plt.step(bin_centers_minutes, locs_of_picked_vs_time[i,:], where='mid', label=f'Pick {i:04d}')
             plt.xlabel('Time (min)')
             plt.ylabel('Locs')
             plt.ylim([0, 80])
             ax = plt.gca()
-            ax.axvline(x=10, ymin=0, ymax=1, color = 'k', linewidth = '2', linestyle = '--')
-            ax.set_title('Number of locs per pick vs time. Bin size %.1f min' % (bin_size*0.1/60))
-            aux_folder = manage_save_directory(figures_per_pick_folder,'locs_vs_time_per_pick')
-            figure_name = 'locs_per_pick_vs_time_pick_%02d' % i
-            figure_path = os.path.join(aux_folder, '%s.png' % figure_name)
-            plt.savefig(figure_path, dpi = 100, bbox_inches='tight')
+            ax.axvline(x=10, ymin=0, ymax=1, color='k', linewidth='2', linestyle='--')
+            ax.set_title(f'Number of locs per pick vs time. Bin size {bin_size*0.1/60:.1f} min')
+            aux_folder = manage_save_directory(figures_per_pick_folder, 'locs_vs_time_per_pick')
+            figure_name = f'locs_per_pick_vs_time_pick_{i:02d}'
+            figure_path = os.path.join(aux_folder, f'{figure_name}.png')
+            plt.savefig(figure_path, dpi=100, bbox_inches='tight')
             plt.close()
             
-        # plot xy coord of the pick in several ways, including the peaks detected
-        if plot_flag:
-            # plot all RAW
-            plt.figure(100)
-            plt.scatter(x_position_of_picked, y_position_of_picked, color='C0', label='Fluorophore Emission', s=0.5)
+            # ================ PLOT SCATTER WITH NP ================
+            if peaks_flag:
+                # RAW scatter plot
+                plt.figure(100)
+                plt.scatter(x_position_of_picked, y_position_of_picked, color='C0', label='Fluorophore Emission', s=0.5)
+                
+                if NP_flag:
+                    plt.scatter(x_position_of_picked_NP, y_position_of_picked_NP, color='C1', s=0.5, alpha=0.2)
+                    plt.scatter(x_avg_NP, y_avg_NP, color='C1', label='NP Scattering', s=0.5, alpha=1)
+                    plt.plot(x_avg_NP, y_avg_NP, 'x', color='k', label='Center of NP')
+                    plt.legend(loc='upper left')
+                
+                plt.ylabel(r'y ($\mu$m)')
+                plt.xlabel(r'x ($\mu$m)')
+                plt.xlim(left=0)
+                plt.ylim(bottom=0)
+                plt.axis('square')
+                ax = plt.gca()
+                ax.set_title(f'Position of locs per pick. Pick {i:02d}')
+                aux_folder = manage_save_directory(figures_per_pick_folder, 'scatter_plots')
+                figure_name = f'xy_pick_scatter_NP_and_PAINT_{i:02d}'
+                figure_path = os.path.join(aux_folder, f'{figure_name}.png')
+                plt.savefig(figure_path, dpi=300, bbox_inches='tight')
+                plt.close()
+                
+                # ================ PLOT SCATTER WITH PAINT POINTS ================
+                plt.figure(2)
+                plt.plot(x_position_of_picked, y_position_of_picked, '.', color='C0', label='PAINT', linewidth=0.5)
+                
+                if NP_flag:
+                    plt.plot(x_avg_NP, y_avg_NP, 'o', markersize=10, markerfacecolor='C1', 
+                            markeredgecolor='k', label='NP')
+                    plt.legend(loc='upper left')
+                
+                plt.ylabel(r'y ($\mu$m)')
+                plt.xlabel(r'x ($\mu$m)')
+                plt.axis('square')
+                ax = plt.gca()
+                ax.set_title(f'Position of locs per pick. Pick {i:02d}')
+                aux_folder = manage_save_directory(figures_per_pick_folder, 'scatter_plots')
+                figure_name = f'xy_pick_scatter_PAINT_{i:02d}'
+                figure_path = os.path.join(aux_folder, f'{figure_name}.png')
+                plt.savefig(figure_path, dpi=300, bbox_inches='tight')
+                plt.close()
+                
+                # ================ PLOT FINE 2D IMAGE ================
+                plt.figure(3)
+                plt.imshow(z_hist, interpolation='none', origin='lower',
+                          extent=[x_hist_centers[0], x_hist_centers[-1], 
+                                  y_hist_centers[0], y_hist_centers[-1]])
+                ax = plt.gca()
+                ax.set_facecolor(bkg_color)
+                
+                if peaks_flag and len(cm_binding_sites_x) > 1:
+                    plt.plot(cm_binding_sites_x, cm_binding_sites_y, 'x', markersize=9, 
+                            color='white', label='binding sites')
+                    plt.plot(x_fitted, y_fitted, '--', linewidth=1, color='white')
+                    
+                    for k, (circle_x, circle_y) in enumerate(zip(cm_binding_sites_x, cm_binding_sites_y)):
+                        circ = plot_circle((circle_x, circle_y), radius=analysis_radius, 
+                                          color='white', fill=False)
+                        ax.add_patch(circ)
+                        
+                        # Peak labels
+                        theta = np.arctan(slope)
+                        perpendicular_x = circle_x + analysis_radius*1.25*np.cos(theta+np.pi/2)
+                        perpendicular_y = circle_y + -1/slope * (perpendicular_x-circle_x)
+                        text_position = (perpendicular_x, perpendicular_y)
+                        text_content = f"{ranks[k]}"
+                        ax.text(*text_position, text_content, ha='center', va='center', 
+                               rotation=0, fontsize=12, color='white')
+                
+                if NP_flag:
+                    plt.plot(x_avg_NP, y_avg_NP, 'o', markersize=8, markerfacecolor='C1', 
+                            markeredgecolor='white', label='NP')
+                    plt.legend(loc='upper right')
+                
+                plt.ylabel(r'y ($\mu$m)')
+                plt.xlabel(r'x ($\mu$m)')
+                cbar = plt.colorbar()
+                cbar.ax.set_title(u'Locs', fontsize=16)
+                cbar.ax.tick_params(labelsize=16)
+                ax.set_title(f'Position of locs per pick. Pick {i:02d}')
+                aux_folder = manage_save_directory(figures_per_pick_folder, 'image_FINE')
+                figure_name = f'xy_pick_image_PAINT_{i:02d}'
+                figure_path = os.path.join(aux_folder, f'{figure_name}.png')
+                plt.savefig(figure_path, dpi=300, bbox_inches='tight')
+                plt.close()
+                
+                # ================ PLOT FINE 2D IMAGE FOR PAPER ================
+                plt.figure(3)
+                plt.imshow(z_hist, interpolation='none', origin='lower',
+                          extent=[x_hist_centers[0], x_hist_centers[-1], 
+                                  y_hist_centers[0], y_hist_centers[-1]])
+                
+                if peaks_flag and len(cm_binding_sites_x) > 1:
+                    plt.plot(cm_binding_sites_x, cm_binding_sites_y, 'x', markersize=5,
+                            color='white', mew=2, label='Binding Sites', alpha=0.65)
+                    ax = plt.gca()
+                    ax.set_facecolor(bkg_color)
+                    
+                    for k, (circle_x, circle_y) in enumerate(zip(cm_binding_sites_x, cm_binding_sites_y)):
+                        circ = plot_circle((circle_x, circle_y), radius=analysis_radius, 
+                                          color='white', fill=False, linewidth=1, alpha=0.65)
+                        ax.add_patch(circ)
+                        
+                        # Peak labels
+                        theta = np.arctan(-abs(slope))
+                        perpendicular_x = circle_x + analysis_radius*1.25*np.cos(theta+np.pi/2)
+                        perpendicular_y = circle_y + -1/slope * (perpendicular_x-circle_x)
+                        text_position = (perpendicular_x, perpendicular_y)
+                        text_content = f"{ranks[k]}"
+                        ax.text(*text_position, text_content, ha='center', va='center', 
+                               rotation=0, fontsize=11, color='white', alpha=0.65)
+                
+                if NP_flag:
+                    plt.plot(x_avg_NP, y_avg_NP, 'o', markersize=8, markerfacecolor='white', 
+                            markeredgecolor='black', label='Center of NP')
+                    plt.legend(loc='upper left')
+                
+                scalebar = ScaleBar(1e3, 'nm', location='lower left') 
+                ax.add_artist(scalebar)
+                ax.get_xaxis().set_visible(False)
+                ax.get_yaxis().set_visible(False)
+                ax = plt.gca()
+                ax.set_facecolor(bkg_color)
+                cbar = plt.colorbar()
+                cbar.ax.set_title(u'Locs')
+                cbar.ax.tick_params()
+                aux_folder = manage_save_directory(figures_per_pick_folder, 'image_FINE')
+                figure_name = f'PAPER_xy_pick_image_PAINT_{i:02d}'
+                figure_path = os.path.join(aux_folder, f'{figure_name}.png')
+                plt.savefig(figure_path, dpi=300, bbox_inches='tight')
+                plt.close()
+                
+                # ================ PLOT COARSE AND BINARY IMAGES ================
+                if docking_sites_temp != 1:
+                    # COARSE 2d image
+                    plt.figure(4)
+                    plt.imshow(z_hist_COARSE, interpolation='none', origin='lower',
+                              extent=[x_hist_COARSE_centers[0], x_hist_COARSE_centers[-1], 
+                                      y_hist_COARSE_centers[0], y_hist_COARSE_centers[-1]])
+                    
+                    if NP_flag:
+                        plt.plot(x_avg_NP, y_avg_NP, 'o', markersize=10, markerfacecolor='white', 
+                                markeredgecolor='k', label='NP')
+                        plt.legend(loc='upper right')
+                    
+                    plt.ylabel(r'y ($\mu$m)')
+                    plt.xlabel(r'x ($\mu$m)')
+                    ax = plt.gca()
+                    ax.set_facecolor(bkg_color)
+                    cbar = plt.colorbar()
+                    cbar.ax.set_title(u'Locs')
+                    cbar.ax.tick_params()
+                    ax.set_title(f'Position of locs per pick. Pick {i:02d}')
+                    aux_folder = manage_save_directory(figures_per_pick_folder, 'image_COARSE')
+                    figure_name = f'xy_pick_image_COARSE_PAINT_{i:02d}'
+                    figure_path = os.path.join(aux_folder, f'{figure_name}.png')
+                    plt.savefig(figure_path, dpi=300, bbox_inches='tight')
+                    plt.close()
+                    
+                    # BINARY 2d image
+                    plt.figure(5)
+                    plt.imshow(detected_peaks, interpolation='none', origin='lower', cmap='binary',
+                              extent=[x_hist_COARSE_centers[0], x_hist_COARSE_centers[-1], 
+                                      y_hist_COARSE_centers[0], y_hist_COARSE_centers[-1]])
+                    
+                    if NP_flag:
+                        plt.plot(x_avg_NP, y_avg_NP, 'o', markersize=10, markerfacecolor='C1', 
+                                markeredgecolor='k', label='NP')
+                        plt.legend(loc='upper right')
+                    
+                    plt.ylabel(r'y ($\mu$m)')
+                    plt.xlabel(r'x ($\mu$m)')
+                    ax = plt.gca()
+                    ax.set_title(f'Position of locs per pick. Pick {i:02d}')
+                    aux_folder = manage_save_directory(figures_per_pick_folder, 'binary_image')
+                    figure_name = f'xy_pick_image_peaks_PAINT_{i:02d}'
+                    figure_path = os.path.join(aux_folder, f'{figure_name}.png')
+                    plt.savefig(figure_path, dpi=300, bbox_inches='tight')
+                    plt.close()
+                
+                # ================ PLOT DISTANCE MATRICES ================
+                if len(cm_binding_sites_x) > 1:
+                    # Matrix distance plot
+                    plt.figure(10)
+                    plt.imshow(matrix_distance, interpolation='none', cmap='spring')
+                    ax = plt.gca()
+                    
+                    for l in range(matrix_distance.shape[0]):
+                        for m in range(matrix_distance.shape[1]):
+                            if l == m:
+                                ax.text(m, l, '-', ha="center", va="center", color=[0,0,0], fontsize=18)
+                            else:
+                                ax.text(m, l, '%.0f' % matrix_distance[l, m],
+                                       ha="center", va="center", color=[0,0,0], fontsize=18)
+                    
+                    ax.xaxis.tick_top()
+                    ax.set_xticks(np.array(range(matrix_distance.shape[1])))
+                    ax.set_yticks(np.array(range(matrix_distance.shape[0])))
+                    axis_string = ['NP']
+                    for j in range(total_peaks_found):
+                        axis_string.append(f'Site {j+1}')
+                    ax.set_xticklabels(axis_string)
+                    ax.set_yticklabels(axis_string)
+                    aux_folder = manage_save_directory(figures_per_pick_folder, 'matrix_distance')
+                    figure_name = f'matrix_distance_{i:02d}'
+                    figure_path = os.path.join(aux_folder, f'{figure_name}.png')
+                    plt.savefig(figure_path, dpi=100, bbox_inches='tight')
+                    plt.close()
+                    
+                    # Matrix std dev plot
+                    plt.figure(11)
+                    plt.imshow(matrix_std_dev, interpolation='none', cmap='spring')
+                    ax = plt.gca()
+                    
+                    for l in range(matrix_distance.shape[0]):
+                        for m in range(matrix_distance.shape[1]):
+                            if l != m:
+                                ax.text(m, l, '-', ha="center", va="center", color=[0,0,0], fontsize=18)
+                            else:
+                                ax.text(m, l, '%.0f' % matrix_std_dev[l, m],
+                                       ha="center", va="center", color=[0,0,0], fontsize=18)
+                    
+                    ax.xaxis.tick_top()
+                    ax.set_xticks(np.array(range(matrix_distance.shape[1])))
+                    ax.set_yticks(np.array(range(matrix_distance.shape[0])))
+                    axis_string = ['NP']
+                    for j in range(total_peaks_found):
+                        axis_string.append(f'Site {j+1}')
+                    ax.set_xticklabels(axis_string)
+                    ax.set_yticklabels(axis_string)
+                    aux_folder = manage_save_directory(figures_per_pick_folder, 'matrix_std_dev')
+                    figure_name = f'matrix_std_dev_{i:02d}'
+                    figure_path = os.path.join(aux_folder, f'{figure_name}.png')
+                    plt.savefig(figure_path, dpi=100, bbox_inches='tight')
+                    plt.close()
 
-            if NP_flag:
-                plt.scatter(x_position_of_picked_NP, y_position_of_picked_NP, color='C1', s=0.5, alpha=0.2)
-                plt.scatter(x_avg_NP, y_avg_NP, color='C1', label='NP Scattering', s=0.5, alpha=1)
-                plt.plot(x_avg_NP, y_avg_NP, 'x', color='k', label='Center of NP')
-                plt.legend(loc='upper left')
 
-            # Set axis labels
-            plt.ylabel('y [μm]')
-            plt.xlabel('x [μm]')
-
-            # Ensure the origin is at the bottom left and start at 0
-            plt.xlim(left=0)
-            plt.ylim(bottom=0)
-
-            plt.axis('square')  # Ensures that the plot is square (equal scaling of x and y)
-
-            # Get the current axis and set title
-            ax = plt.gca()
-            ax.set_title('Position of locs per pick. Pick %02d' % i)
-
-            # Save the figure
-            aux_folder = manage_save_directory(figures_per_pick_folder, 'scatter_plots')
-            figure_name = 'xy_pick_scatter_NP_and_PAINT_%02d' % i
-            figure_path = os.path.join(aux_folder, '%s.png' % figure_name)
-            plt.savefig(figure_path, dpi=300, bbox_inches='tight')
-            plt.close()
-            
-        if plot_flag:
-            # plot SCATTER + NP
-            plt.figure(2)
-
-            plt.plot(x_position_of_picked, y_position_of_picked, '.', color = 'C0', label = 'PAINT', linewidth=0.5)
-            if NP_flag:
-                plt.plot(x_avg_NP, y_avg_NP, 'o', markersize = 10, markerfacecolor = 'C1', 
-                         markeredgecolor = 'k', label = 'NP')
-
-                plt.legend(loc='upper left')
-            plt.ylabel('y ($\mu$m)')
-            plt.xlabel('x ($\mu$m)')
-            plt.axis('square')
-            ax = plt.gca()
-            ax.set_title('Position of locs per pick. Pick %02d' % i)
-            aux_folder = manage_save_directory(figures_per_pick_folder,'scatter_plots')        
-            figure_name = 'xy_pick_scatter_PAINT_%02d' % i
-            figure_path = os.path.join(aux_folder, '%s.png' % figure_name)
-            plt.savefig(figure_path, dpi = 300, bbox_inches='tight')
-            plt.close()
-            # Save x and y positions for every pick.
-            # TODO: Save with corresponding labels.
-            # data_to_save = np.asarray([x_position_of_picked, y_position_of_picked]).T
-            # new_filename = 'pick_' + str(i) + '_xy_.dat'
-            # new_filepath = os.path.join(kinetics_folder, new_filename)
-            # np.savetxt(new_filepath, data_to_save)
-            #
-            # # save ALL traces in one file
-            # new_filename = 'pick_' + str(i) + '_cm_xy.dat'
-            # new_filepath = os.path.join(kinetics_folder, new_filename)
-            # np.savetxt(new_filepath, np.asarray([cm_binding_sites_x, cm_binding_sites_y]).T)
-
-
-
-            
-        if plot_flag:
-            # plot FINE 2d image
-            plt.figure(3)
-            plt.imshow(z_hist, interpolation='none', origin='lower',
-                       extent=[x_hist_centers[0], x_hist_centers[-1], 
-                               y_hist_centers[0], y_hist_centers[-1]])
-            ax = plt.gca()
-            ax.set_facecolor(bkg_color)
-            plt.plot(cm_binding_sites_x, cm_binding_sites_y, 'x', markersize = 9, 
-                     color = 'white', label = 'binding sites')
-            plt.plot(x_fitted, y_fitted, '--', linewidth = 1, color = 'white')
-
-            # TODO: Plot both PAPER version and normal version here.
-            for k, (circle_x, circle_y) in enumerate(zip(cm_binding_sites_x, cm_binding_sites_y)):
-                circ = plot_circle((circle_x, circle_y), radius = analysis_radius, 
-                            color = 'white', fill = False)
-                ax.add_patch(circ)
-
-                # Peak labels in ascending order
-                theta = np.arctan(slope)
-                perpendicular_x = circle_x + analysis_radius*1.25*np.cos(theta+np.pi/2)
-                perpendicular_y = circle_y + -1/slope * (perpendicular_x-circle_x)
-                text_position = (perpendicular_x, perpendicular_y)
-                text_content = f"{ranks[k]}"
-                ax.text(*text_position, text_content, ha='center', va='center', rotation=0, fontsize=12, color='white')
-
-            if NP_flag:
-                plt.plot(x_avg_NP, y_avg_NP, 'o', markersize = 8, markerfacecolor = 'C1', 
-                         markeredgecolor = 'white', label = 'NP')
-                plt.legend(loc='upper right')
-            plt.ylabel('y ($\mu$m)')
-            plt.xlabel('x ($\mu$m)')
-            cbar = plt.colorbar()
-            cbar.ax.set_title(u'Locs', fontsize = 16)
-            cbar.ax.tick_params(labelsize = 16)
-            ax.set_title('Position of locs per pick. Pick %02d' % i)
-            aux_folder = manage_save_directory(figures_per_pick_folder,'image_FINE')        
-            figure_name = 'xy_pick_image_PAINT_%02d' % i
-            figure_path = os.path.join(aux_folder, '%s.png' % figure_name)
-            plt.savefig(figure_path, dpi = 300, bbox_inches='tight')
-            plt.close()
-            
-        if plot_flag:
-            # plot FINE 2d image FOR PAPER
-            plt.figure(3)
-            plt.imshow(z_hist, interpolation='none', origin='lower',
-                       extent=[x_hist_centers[0], x_hist_centers[-1], 
-                               y_hist_centers[0], y_hist_centers[-1]])
-            plt.plot(cm_binding_sites_x, cm_binding_sites_y, 'x', markersize = 5,
-                     color = 'white', mew = 2, label = 'Binding Sites', alpha=0.65)
-            # plt.plot(x_fitted, y_fitted, '--', linewidth = 1, color = 'wheat')
-            ax = plt.gca()
-            ax.set_facecolor(bkg_color)
-            for k, (circle_x, circle_y) in enumerate(zip(cm_binding_sites_x, cm_binding_sites_y)):
-                circ = plot_circle((circle_x, circle_y), radius = analysis_radius, 
-                            color = 'white', fill = False, linewidth=1, alpha=0.65)
-                ax.add_patch(circ)
-                # Peak labels in ascending order
-                theta = np.arctan(-abs(slope))
-                perpendicular_x = circle_x + analysis_radius*1.25*np.cos(theta+np.pi/2)
-                perpendicular_y = circle_y + -1/slope * (perpendicular_x-circle_x)
-                text_position = (perpendicular_x, perpendicular_y)
-                text_content = f"{ranks[k]}"
-                ax.text(*text_position, text_content, ha='center', va='center', rotation=0, fontsize=11, color='white', alpha=0.65)
-            if NP_flag:
-                plt.plot(x_avg_NP, y_avg_NP, 'o', markersize = 8, markerfacecolor = 'white', 
-                         markeredgecolor = 'black', label = 'Center of NP')
-                plt.legend(loc='upper left')
-            scalebar = ScaleBar(1e3, 'nm', location = 'lower left') 
-            ax.add_artist(scalebar)
-            ax.get_xaxis().set_visible(False)
-            ax.get_yaxis().set_visible(False)
-            ax = plt.gca()
-            ax.set_facecolor(bkg_color)
-            cbar = plt.colorbar()
-            cbar.ax.set_title(u'Locs')
-            cbar.ax.tick_params()
-            aux_folder = manage_save_directory(figures_per_pick_folder,'image_FINE')        
-            figure_name = 'PAPER_xy_pick_image_PAINT_%02d' % i
-            figure_path = os.path.join(aux_folder, '%s.png' % figure_name)
-            plt.savefig(figure_path, dpi = 300, bbox_inches='tight')
-            plt.close()
-            
-        if plot_flag and (docking_sites_temp != 1):
-            # plot COARSE 2d image
-            plt.figure(4)
-            plt.imshow(z_hist_COARSE, interpolation='none', origin='lower',
-                       extent=[x_hist_COARSE_centers[0], x_hist_COARSE_centers[-1], 
-                               y_hist_COARSE_centers[0], y_hist_COARSE_centers[-1]])
-            if NP_flag:
-                plt.plot(x_avg_NP, y_avg_NP, 'o', markersize = 10, markerfacecolor = 'white', 
-                         markeredgecolor = 'k', label = 'NP')
-                plt.legend(loc='upper right')
-            plt.ylabel('y ($\mu$m)')
-            plt.xlabel('x ($\mu$m)')
-            ax = plt.gca()
-            ax.set_facecolor(bkg_color)
-            cbar = plt.colorbar()
-            cbar.ax.set_title(u'Locs')
-            cbar.ax.tick_params()
-            ax.set_title('Position of locs per pick. Pick %02d' % i)
-            aux_folder = manage_save_directory(figures_per_pick_folder,'image_COARSE')
-            figure_name = 'xy_pick_image_COARSE_PAINT_%02d' % i
-            figure_path = os.path.join(aux_folder, '%s.png' % figure_name)
-            plt.savefig(figure_path, dpi = 300, bbox_inches='tight')
-            plt.close()
-            
-        if plot_flag and (docking_sites_temp != 1):
-            # plot BINARY 2d image
-            plt.figure(5)
-            plt.imshow(detected_peaks, interpolation='none', origin='lower', cmap = 'binary',
-                       extent=[x_hist_COARSE_centers[0], x_hist_COARSE_centers[-1], 
-                               y_hist_COARSE_centers[0], y_hist_COARSE_centers[-1]])
-            if NP_flag:
-                plt.plot(x_avg_NP, y_avg_NP, 'o', markersize = 10, markerfacecolor = 'C1', 
-                         markeredgecolor = 'k', label = 'NP')
-                plt.legend(loc='upper right')
-            plt.ylabel('y ($\mu$m)')
-            plt.xlabel('x ($\mu$m)')
-            ax = plt.gca()
-            ax.set_title('Position of locs per pick. Pick %02d' % i)
-            aux_folder = manage_save_directory(figures_per_pick_folder,'binary_image')
-            figure_name = 'xy_pick_image_peaks_PAINT_%02d' % i
-            figure_path = os.path.join(aux_folder, '%s.png' % figure_name)
-            plt.savefig(figure_path, dpi = 300, bbox_inches='tight')
-            plt.close()
-
-
-    ## plot relative positions of the binding sites with respect NP
+    # ================ GLOBAL ANALYSIS AND VISUALIZATION ================
+    # ================ PLOT NP RELATIVE POSITIONS ================
     number_of_bins = 16
     hist_range = [25, 160]
     bin_size = (hist_range[-1] - hist_range[0])/number_of_bins
@@ -804,7 +745,7 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
     plt.savefig(figure_path, dpi = 300, bbox_inches='tight')
     plt.close()
     
-    ## plot relative positions between binding sites
+    # ================ PLOT BINDING SITE RELATIVE POSITIONS ================
     number_of_bins = 16
     hist_range = [25, 160]
     bin_size = (hist_range[-1] - hist_range[0])/number_of_bins
@@ -821,6 +762,7 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
     plt.savefig(figure_path, dpi = 300, bbox_inches='tight')
     plt.close()
     
+    # ================ PLOT GLOBAL TIME SERIES ANALYSIS ================
     # plot global variables, all the picks of the video
     time_concat = frame_concat*exp_time/60
     
@@ -840,6 +782,7 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
     plt.savefig(figure_path, dpi = 300, bbox_inches='tight')
     plt.close()
 
+    # ================ PROCESS TIME DATA ================
     # Sorting time.
     index_concat = np.argsort(time_concat)
     ordered_time_concat = time_concat[index_concat]
@@ -848,7 +791,7 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
     photons_sum = np.sum(photons_concat, axis=None)
     photons_mean = np.mean(photons_concat, axis=None)
 
-
+    # ================ SAVE KINETICS DATA ================
     new_filename = 'PHOTONS.dat'
     new_filepath = os.path.join(kinetics_folder, new_filename)
     np.savetxt(new_filepath, photons_concat)
@@ -857,6 +800,7 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
     new_filepath = os.path.join(kinetics_folder, new_filename)
     np.savetxt(new_filepath, time_concat)
 
+    # ================ PLOT BACKGROUND SIGNAL ================
     ## BACKGROUND
     ax = plot_vs_time_with_hist(bkg_concat, time_concat, order = 2)
     ax.set_xlabel('Time (min)')
@@ -865,32 +809,10 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
     figure_name = 'bkg_vs_time'
     figure_path = os.path.join(figures_folder, '%s.png' % figure_name)
     plt.savefig(figure_path, dpi = 300, bbox_inches='tight')
-    plt.show()
     plt.close()
 
-    ## Normalized HISTOGRAMS
-    # mean = np.mean(photons_concat, axis=None)
-    # std = np.std(photons_concat, axis=None)
-    # filter_indices = np.where((np.abs(photons_concat-mean) < 3 * std))
-    # fig, ax = plt.subplots(1, 1)
-    # filtered_photons = photons_concat[filter_indices]
-    # ax.hist([filtered_photons, bkg_concat], bins=int(len(photons_concat) / 50), stacked=True, density=True)
-    # ax.set_xlabel('Photon count.')
-    # ax.set_ylabel('Counts')
-    # ax.set_title('Histogram of photon count.')
-    # figure_name = 'photon_histogram'
-    # figure_path = os.path.join(figures_folder, '%s.png' % figure_name)
-    # plt.savefig(figure_path, dpi=300, bbox_inches='tight')
-    # plt.show()
-
+    # ================ PLOT SITE-SPECIFIC PHOTON DISTRIBUTIONS ================
     # Sort the keys to ensure plotting in numerical order
-
-    # TODO: Trace per site????????????
-    # for key in all_traces_per_site.keys():
-    #     site_trace = all_traces_per_site[key]
-    #     new_filename = 'TRACE_pick_%02d.dat' % i
-    #     new_filepath = os.path.join(traces_per_pick_folder, new_filename)
-    #     np.savetxt(new_filepath, trace, fmt='%05d')
     keys = sorted(all_traces_per_site.keys(), key=float)
 
     # Custom colors and line styles for better distinction
@@ -921,17 +843,19 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
         ax.legend(title='Binding site')
         ax.set_title("Binding site photon distributions", fontsize=24)
         plt.tight_layout()
-        plt.show()
+        figure_name = 'binding_site_photon_distributions'
+        figure_path = os.path.join(figures_folder, '%s.png' % figure_name)
+        plt.savefig(figure_path, dpi=300, bbox_inches='tight')
+        plt.close()
     except:
         pass
 
-
+    # ================ SAVE BACKGROUND DATA ================
     new_filename = 'BKG.dat'
     new_filepath = os.path.join(kinetics_folder, new_filename)
     np.savetxt(new_filepath, bkg_concat, fmt='%05d')
     
-    ################################### save data
-    
+    # ================ SAVE ALL TRACES ================
     # delete first fake and empty trace (needed to make the proper array)
     all_traces = np.delete(all_traces, 0, axis = 0)
     all_traces = all_traces.T
@@ -941,28 +865,7 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
     new_filepath = os.path.join(kinetics_folder, new_filename)
     np.savetxt(new_filepath, all_traces, fmt='%05d')
 
-    # compile all traces of the image in one array
-
-    # GMM stds
-    # plt.figure()
-    # fig, ax = plt.subplots(1, 1)
-    # #ax.hist(np.sqrt(np.array(gmm_stds).reshape(-1, 2))*1e3, bins=len(gmm_stds), stacked=True, label=['s_x', 's_y'])
-    # gmm_stds_total = np.concatenate((gmm_stds_x.reshape(-1, 1), gmm_stds_y.reshape(-1, 1)), axis=1)
-    # ax.hist(np.sqrt(gmm_stds_total)*1e3, bins=len(gmm_stds), stacked=True, label=['s_x', 's_y'])
-    # ax.set_xlabel('Standard deviation (um))')
-    # ax.set_ylabel('Counts')
-    # plt.legend()
-    # ax.set_title('Distribution of the GMMs standard deviation.')
-    # figure_name = 'GMM_stds'
-    # figure_path = os.path.join(figures_folder, '%s.png' % figure_name)
-    # plt.savefig(figure_path, dpi=300, bbox_inches='tight')
-    # plt.close()
-
-    # new_filename = 'gmm_stds.dat'
-    # new_filepath = os.path.join(gaussian_folder, new_filename)
-    # np.savetxt(new_filepath, np.array(gmm_stds).reshape(-1, 2))
-
-
+    # ================ SAVE ADDITIONAL DATA ================
     # number of locs
     data_to_save = np.asarray([pick_number, locs_of_picked]).T
     new_filename = 'number_of_locs_per_pick.dat'
@@ -979,6 +882,7 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
     new_filepath = os.path.join(figures_folder, new_filename)
     np.savetxt(new_filepath, data_to_save, fmt='%.1f')
 
+    # ================ OUTPUT SUMMARY INFORMATION ================
     # Summary information
     summary_info = {
         'Total Picks Processed': total_number_of_picks,
@@ -992,11 +896,14 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
         update_pkl(working_folder, key, summary_info[key])
 
     # Elegant printing of the summary
-    print("\n------ Summary of STEP 2 ------")
-    for key, value in summary_info.items():
-        print(f"{key}: {value}")
-
-    print("Data analysis and plotting completed.")
+    print('\n' + '='*23 + '📊 STEP 2 SUMMARY 📊' + '='*23)
+    print(f'   Total Picks Processed: {total_number_of_picks}')
+    print(f'   Total Time (min): {total_time_min:.1f}')
+    print(f'   2D Histogram Bin Size (nm): {hist_2D_bin_size:.2f}')
+    print(f'   Mean Amount of Photons: {photons_mean:.1f}')
+    print(f'   Mean Background Signal: {np.mean(bkg_concat, axis=None):.1f}')
+    print(f'   Data analysis and plotting completed.')
+    print('='*70)
     print('\nDone with STEP 2.')
 
     return

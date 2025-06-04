@@ -13,8 +13,10 @@ likelihood, -log(likelihood) is minimized.
 
 Fribourg, Switzerland
 """
+# ================ IMPORT LIBRARIES ================
 import pickle
 import time
+import warnings
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -30,8 +32,11 @@ from auxiliary_functions import (log_likelihood_hyper, log_likelihood_hyper_with
                             monoexp_func_with_error, log_likelihood_mono_with_error,
                                  log_likelihood_mono_with_error_one_param, update_pkl)
 
-# ignore divide by zero warning
+# ================ CONFIGURATION SETTINGS ================
+# ignore divide by zero warning and scipy optimization warnings
 np.seterr(divide='ignore')
+warnings.filterwarnings('ignore', message='delta_grad == 0.0')
+warnings.filterwarnings('ignore', category=UserWarning, module='scipy.optimize')
 
 plt.close('all')
 plt.ioff()
@@ -40,12 +45,14 @@ plt.ioff()
 ###################### HYPEREXPONENTIAL PROBLEM ########################
 ########################################################################
 
+# ================ MAIN FUNCTION FOR BINDING/UNBINDING TIME ESTIMATION ================
 def estimate_binding_unbinding_times(exp_time, rango, working_folder, \
                                     initial_params, likelihood_err_param, \
                                     opt_display_flag, hyper_exponential_flag, verbose_flag):
     
     print('\nStarting STEP 4.')
-        
+    
+    # ================ LOCATE AND LOAD DATA FILES ================
     list_of_files = os.listdir(working_folder)
     
     t_on_datafile = [f for f in list_of_files if re.search('t_on', f)][0]
@@ -56,25 +63,29 @@ def estimate_binding_unbinding_times(exp_time, rango, working_folder, \
 
     ########################################################################
 
+    # ================ ANALYZE BINDING TIME (t_on) ================
     solutions_on = find_best_tau_using_MLE(t_on_full_filepath, rango, \
                                             exp_time, initial_params, \
                                             likelihood_err_param, \
                                             hyper_exponential_flag, \
-                                            opt_display_flag, 1, verbose_flag)
+                                            opt_display_flag, 1, verbose_flag, plot_flag=False)
     
     #print('\nSolution for tau_on')
     # print(solutions_on)
     
     ########################################################################
 
+    # ================ ANALYZE UNBINDING TIME (t_off) ================
     solutions_off = find_best_tau_using_MLE(t_off_full_filepath, rango, \
                                             exp_time, [230, 2, 1], \
                                             likelihood_err_param, \
                                             True, \
-                                            opt_display_flag, 1, verbose_flag)
+                                            opt_display_flag, 1, verbose_flag, plot_flag=False)
 
     # print('\nSolution for tau_off')
     # # print(solutions_off)
+
+    # ================ COMPILE RESULTS AND SAVE ================
     parameters = {"tau_long": solutions_on[0][0], "tau_long_error_plus": solutions_on[0][1],
                   "tau_long_error_minus": solutions_on[0][2], "ratio": solutions_on[2][0],
                   "tau_long_off": solutions_off[0][0], "tau_long_off_error_plus": solutions_off[0][1],
@@ -87,7 +98,7 @@ def estimate_binding_unbinding_times(exp_time, rango, working_folder, \
         update_pkl(path, parameter, parameters[parameter])
 
 
-
+    # ================ SAVE PARAMETERS TO PICKLE FILE ================
     aux_folder = os.path.dirname(t_on_full_filepath)
     dict_path = os.path.join(aux_folder, "MLE_parameters.pkl")
     with open(dict_path, 'wb') as f:
@@ -95,6 +106,17 @@ def estimate_binding_unbinding_times(exp_time, rango, working_folder, \
 
     ########################################################################
 
+    # ================ FINAL PROMINENT TAU_LONG OUTPUT ================
+
+    print('\n' + '='*23 + '🔥 TAU LONG 🔥' + '='*23)
+    print(f'   TAU_LONG = {solutions_on[0][0]:.3f} seconds')
+    print(f'   Error: +{solutions_on[0][1]:.3f} / -{solutions_on[0][2]:.3f} seconds')
+    print('='*60)
+    if verbose_flag:
+        if hyper_exponential_flag and solutions_on[1][0] > 0:
+            print(f'   Additional info: tau_short = {solutions_on[1][0]:.3f} s, ratio = {solutions_on[2][0]:.3f}')
+        print(f'   Full results saved to: {dict_path}')
+        print('='*60)
     print('\nDone with STEP 4.')
 
     return
@@ -103,23 +125,24 @@ def estimate_binding_unbinding_times(exp_time, rango, working_folder, \
 ########################################################################
 ########################################################################
 
+# ================ FUNCTION TO FIND BEST TAU USING MLE ================
 def find_best_tau_using_MLE(full_filepath, rango, exp_time, initial_params, \
                             likelihood_err_param, hyper_exponential_flag, \
-                            opt_display_flag, factor, verbose_flag, sample_data = None, plot_flag=True):
+                            opt_display_flag, factor, verbose_flag, sample_data = None, plot_flag=False):
     # factor is to be used in case you're estimating tau_off which is significantly
     # larger than tau_on, typically
 
+    # ================ PREPARE INPUT DATA ================
     rango = factor*np.array(rango)
     # load data
     if sample_data is not None:
         sample = sample_data
     else:
         sample = np.loadtxt(full_filepath)
-    # sample2 = np.loadtxt(r"C:\Users\olled\OneDrive - Université de Fribourg\Documents\2024-03-13_pishaper_100ms\1xPPT_488_8b_100ms_0.3mW_20.8_degrees_2.47_TIRF_1\grad1000\split_data\kinetics_data\t_on.dat")
-    #
-    # sample = np.append(sample, sample2, axis=0)
     # numerical approximation of the log_ML function using scipy.optimize
     st = time.time()
+
+    # ================ SET OPTIMIZATION PARAMETERS ================
     # if hyperexponential define bounds and initial params for two exponential
     # otherwise set them for a single exponential
     if hyper_exponential_flag:
@@ -170,6 +193,7 @@ def find_best_tau_using_MLE(full_filepath, rango, exp_time, initial_params, \
     #                 log_likelihood_matrix[i,j] = log_likelihood_mono_with_error(theta_param, sample)
     # log_log_likelihood_matrix = np.log(log_likelihood_matrix)
     
+    # ================ PREPARE OPTIMIZATION PROCESS ================
     # before plotting the MLE map === Minimize!!!
     # prepare function to store points the method pass through
     road_to_convergence = list()
@@ -190,12 +214,14 @@ def find_best_tau_using_MLE(full_filepath, rango, exp_time, initial_params, \
         print('Optimization process started...')
     ################# constrained and bounded methods
     
+    # ================ DEFINE OPTIMIZATION CONSTRAINTS ================
     # define constraint of the minimization problem (for trust-constr method)
     # that is real_binding_time > short_on_time
     constr_array = np.array([1, -1, 0])
     constr = opt.LinearConstraint(constr_array, 0, np.inf, keep_feasible = True)
     sample = sample[~np.isnan(sample)]
 
+    # ================ PERFORM MLE OPTIMIZATION ================
     if hyper_exponential_flag:
         out_estimator = opt.minimize(log_likelihood_hyper_with_error, 
                                     initial_params, 
@@ -238,6 +264,7 @@ def find_best_tau_using_MLE(full_filepath, rango, exp_time, initial_params, \
     if verbose_flag:
         print(out_estimator)
     
+    # ================ EXTRACT OPTIMIZED PARAMETERS ================
     # assign variables
     tau_long_MLE = out_estimator.x[0]
     tau_short_MLE = out_estimator.x[1]
@@ -258,6 +285,7 @@ def find_best_tau_using_MLE(full_filepath, rango, exp_time, initial_params, \
     #print('tau_long_amplitude %.3f, tau_short_amplitude %.3f' % \
     #     (tau_long_amplitude, tau_short_amplitude))
 
+    # ================ VISUALIZATION OF FITTING RESULTS ================
     # plot output and minimization map
     # Takes too long with tau off.
     # plt.figure(1)
@@ -278,6 +306,7 @@ def find_best_tau_using_MLE(full_filepath, rango, exp_time, initial_params, \
     # plt.grid(False)
     # cbar.ax.set_title('log( -log( likelihood ) )', fontsize = 13)
     
+    # ================ PREPARE HISTOGRAM FOR VISUALIZATION ================
     # show how the solution fits the histogram
     # prepare histogram binning
     bin_size = factor*exp_time*2 #factor 2 is arbitrary for PAPER
@@ -294,6 +323,7 @@ def find_best_tau_using_MLE(full_filepath, rango, exp_time, initial_params, \
         counts_norm_MLE = monoexp_func(bin_center, tau_long_MLE, tau_short_MLE, ratio_MLE)
 
 
+    # ================ GENERATE PLOTS OF MLE RESULTS ================
     # Residual plot
     # min_prob_threshold = 5e-2
     #
@@ -324,9 +354,10 @@ def find_best_tau_using_MLE(full_filepath, rango, exp_time, initial_params, \
     # plt.xlabel('Binding time [s]')
     # plt.ylabel('Deviation from data [%]')
     # plt.axhline(y=0, color='k', linestyle='--', linewidth=0.5, alpha=0.6)
-    # plt.show()
+    # 
     # plt.close()
 
+    # ================ PLOT DATA AND MLE FIT ================
     # plot data and MLE output
     if plot_flag:
         plt.figure(99)
@@ -347,6 +378,7 @@ def find_best_tau_using_MLE(full_filepath, rango, exp_time, initial_params, \
         plt.savefig(figure_path, dpi = 300, bbox_inches='tight')
 
 
+        # ================ PLOT FORMATTED PUBLICATION-READY FIGURE ================
         # plot data and MLE output °°°°°° FOR PAPER°°°°°°°°°°°
         plt.figure(100)
         plt.bar(bin_center, counts_norm, width = bin_size, color = 'lightgrey', edgecolor = 'k', label='Data')
@@ -380,6 +412,7 @@ def find_best_tau_using_MLE(full_filepath, rango, exp_time, initial_params, \
         plt.savefig(figure_path, dpi = 300, bbox_inches='tight')
 
 
+    # ================ ESTIMATE ERROR INTERVALS ================
     # estimate error as a likelihood interval
     # see "Probability and statistics in particle physics" of A. G. Froedsen, 
     # 1979 ed., page 221 and on, Chapter 9.6 (particularly, page 233)
@@ -390,6 +423,7 @@ def find_best_tau_using_MLE(full_filepath, rango, exp_time, initial_params, \
     else:
         MLE_value = log_likelihood_mono_with_error(out_estimator.x, sample)
 
+    # ================ CALCULATE ERROR FOR TAU_LONG ================
     # define functions as f = abs( MLE - (MLE_value + a)) to find the roots
     # FOR TAU_ON #########################################################
     if hyper_exponential_flag:
@@ -410,6 +444,8 @@ def find_best_tau_using_MLE(full_filepath, rango, exp_time, initial_params, \
                                                method = 'hybr',
                                                options = {'xtol':1e-16,
                                                           'maxfev':2000})
+
+    # ================ CALCULATE ERROR FOR TAU_SHORT ================
     # FOR TAU_SHORT #########################################################
     if hyper_exponential_flag:
         log_likelihood_tau_short_var = lambda x : np.abs(log_likelihood_hyper_with_error([tau_long_MLE, x, ratio_MLE], \
@@ -426,10 +462,9 @@ def find_best_tau_using_MLE(full_filepath, rango, exp_time, initial_params, \
                                                        method = 'hybr',
                                                        options = {'xtol':1e-16,
                                                                   'maxfev':2000})
-        # FOR RATIO #########################################################
 
-
-
+    # ================ CALCULATE ERROR FOR RATIO ================
+    # FOR RATIO #########################################################
     if hyper_exponential_flag:
         log_likelihood_ratio_var = lambda x : np.abs(log_likelihood_hyper_with_error([tau_long_MLE, tau_short_MLE, x], \
                                                                            sample) - (MLE_value + a))
@@ -448,7 +483,8 @@ def find_best_tau_using_MLE(full_filepath, rango, exp_time, initial_params, \
                                                method = 'hybr',
                                                options = {'xtol':1e-16,
                                                           'maxfev':2000})
-    #######################################################################
+    
+    # ================ CALCULATE FINAL ERROR VALUES ================
     # calculate errors: 
     tau_long_MLE_error_plus = np.abs(out_tau_on_error_estimator_plus.x[0] - tau_long_MLE)
     tau_long_MLE_error_minus = np.abs(out_tau_on_error_estimator_minus.x[0] - tau_long_MLE)
@@ -463,6 +499,7 @@ def find_best_tau_using_MLE(full_filepath, rango, exp_time, initial_params, \
     
     ########################################################################
     
+    # ================ COMPILE RESULTS ================
     # make solutions array
     if hyper_exponential_flag:
         solutions = np.array([[tau_long_MLE, tau_long_MLE_error_plus, tau_long_MLE_error_minus],
@@ -472,10 +509,14 @@ def find_best_tau_using_MLE(full_filepath, rango, exp_time, initial_params, \
         solutions = np.array([[tau_long_MLE, tau_long_MLE_error_plus, tau_long_MLE_error_minus],
                             [0, 0, 0],
                             [ratio_MLE, ratio_MLE_error_plus, ratio_MLE_error_minus]])
+
+    # ================ OUTPUT EXECUTION TIME ================
     et = time.time()
     elapsed_time = et - st
     if verbose_flag:
         print('Execution time of minimizer:', elapsed_time, 'seconds')
+
+        # ================ OUTPUT SUMMARY INFORMATION ================
         # Summary of STEP 4
         print("\n------ Summary of STEP 4 ------")
         print(f"MLE Fit Value: tau_long = {tau_long_MLE:.3f} s")
@@ -494,9 +535,10 @@ def find_best_tau_using_MLE(full_filepath, rango, exp_time, initial_params, \
         print("Data analysis and optimization completed. Results and figures saved.")
     ########################################################################
     
+    # ================ ADDITIONAL LIKELIHOOD ANALYSIS (COMMENTED) ================
     # uncomment the following lines to calculate and plot the
     # independant log likelihood and check the independent variable assumption
-    # does not include the monoexp version
+    # does not includes the monoexp version
     
     # log_likelihood_matrix_for_tau_on_error = np.zeros((l))
     # f = np.zeros((l))
@@ -540,8 +582,10 @@ def find_best_tau_using_MLE(full_filepath, rango, exp_time, initial_params, \
     # plt.legend()
 
     ########################################################################
-
-    plt.show()
+    if plot_flag:
+        plt.show()
+    else:
+        plt.close()
 
     return solutions
 
@@ -549,6 +593,7 @@ def find_best_tau_using_MLE(full_filepath, rango, exp_time, initial_params, \
 #########################################################################
 #########################################################################
 
+# ================ SCRIPT EXECUTION ENTRY POINT ================
 if __name__ == '__main__':
     
     # load and open folder and file

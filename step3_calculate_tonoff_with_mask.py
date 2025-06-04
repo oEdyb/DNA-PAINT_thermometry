@@ -6,8 +6,10 @@ Created on Fri July 21 2023
 
 """
 
+# ========================== IMPORT LIBRARIES ==========================
 import numpy as np
 import matplotlib.pyplot as plt
+import warnings
 import os
 import tkinter as tk
 import tkinter.filedialog as fd
@@ -15,6 +17,8 @@ from auxiliary_functions import *
 import scipy
 import glob
 
+# ================ SUPPRESS WARNINGS FOR CLEANER OUTPUT ================
+warnings.filterwarnings('ignore', category=UserWarning, module='matplotlib')
 
 plt.close("all")
 plt.rc('font', size=20)  # controls default text sizes
@@ -27,11 +31,13 @@ plt.rc('figure', titlesize=24)  # fontsize of the figure title
 
 ##############################################################################
 
+# ========================== MAIN FUNCTION FOR CALCULATING KINETICS ==========================
 def calculate_kinetics(exp_time, photons_threshold, background_level, photons, folder_main, filename, mask_level, mask_singles, nr_of_frames,
                        verbose_flag, photon_threshold_flag):
     # exp_time in ms
     print('\nStarting STEP 3.')
 
+    # ================ SETUP DIRECTORY STRUCTURE AND FILEPATHS ================
     # filepath
     folder = os.path.join(folder_main, 'kinetics_data')
     figures_folder = os.path.join(folder_main, 'figures_global')
@@ -45,6 +51,7 @@ def calculate_kinetics(exp_time, photons_threshold, background_level, photons, f
     sum_photons_per_site_path = manage_save_directory(folder, 'sum_photons_per_site')
     photons_per_site_path = manage_save_directory(folder, 'photons_per_site')
 
+    # ================ CLEAN UP EXISTING FILES IN OUTPUT DIRECTORIES ================
     folders_to_remove_files_from = [ton_per_site_path, toff_per_site_path, mean_photons_per_site_path, std_photons_per_site_path,
                                     sum_photons_per_site_path, photons_per_site_path]
 
@@ -56,6 +63,7 @@ def calculate_kinetics(exp_time, photons_threshold, background_level, photons, f
             else:
                 print(f"{file_path} is not a file, skipping.")
 
+    # ================ LOAD TRACES DATA AND ORGANIZE BY PICK AND SITE ================
     # The following dict is a dict of dicts, pick and then site
     traces_per_pick_and_site = {}
 
@@ -76,9 +84,20 @@ def calculate_kinetics(exp_time, photons_threshold, background_level, photons, f
                 'distance_to_NP': distance_to_NP,
                 'data': data
             }
+    # ================ LOAD MAIN TRACES DATA ================
     # load data
     traces = np.loadtxt(traces_file)
     
+    # Validate traces data
+    if traces.size == 0:
+        print("Error: No traces data found in file:", traces_file)
+        return
+        
+    # Ensure traces is 2D
+    if len(traces.shape) == 1:
+        traces = traces.reshape(-1, 1)
+    
+    # ================ INITIALIZE ARRAYS FOR COLLECTING RESULTS ================
     tons = np.array([])
     toffs = np.array([])
     tstarts = np.array([])
@@ -93,7 +112,7 @@ def calculate_kinetics(exp_time, photons_threshold, background_level, photons, f
     photon_intensity_all = np.array([])
     std_photons_all = np.array([])
 
-
+    # ================ CALCULATE PHOTON THRESHOLD FOR FILTERING ================
     photon_mean = np.mean(photons)
     photon_std = np.std(photons)
     photons_plot = photons[photons < photon_mean + 4 * photon_std]
@@ -101,8 +120,6 @@ def calculate_kinetics(exp_time, photons_threshold, background_level, photons, f
     # Fit Gaussian to photons per localization in order to filter.
     photon_threshold_flag = False
     if photon_threshold_flag:
-
-
         def gaussian_1d(x, a, mu, sigma):
             return a * np.exp(-(x - mu) ** 2 / (2 * sigma ** 2))
 
@@ -112,13 +129,15 @@ def calculate_kinetics(exp_time, photons_threshold, background_level, photons, f
         photons_threshold = popt[0][1] - popt[0][2]
     else:
         photons_threshold = 0.02
+        
+    # ================ PROCESS EACH TRACE TO CALCULATE BINDING TIMES ================
     # calculate binding times
     for i in range(number_of_traces):
     # for i in range(1):
         # For every single peak (docking sites * picks), get their trace through all frames.
         trace = traces[:, i]
 
-        [ton, toff, binary, tstart, SNR, SBR, sum_photons, mean_photons, photon_intensity, std_photons, tstart_SNR, double_event_count] = calculate_tau_on_times(trace, photons_threshold, \
+        [ton, toff, binary, tstart, SNR, SBR, sum_photons, mean_photons, photon_intensity, std_photons, tstart_SNR, double_events_counts] = calculate_tau_on_times(trace, photons_threshold, \
                                                                   background_level, \
                                                                   exp_time, mask_level, mask_singles, verbose_flag, i)
 
@@ -132,10 +151,11 @@ def calculate_kinetics(exp_time, photons_threshold, background_level, photons, f
             avg_photons_all = np.append(avg_photons_all, mean_photons)
             sum_photons_all = np.append(sum_photons_all, sum_photons)
             tstart_SNR_all = np.append(tstart_SNR_all, tstart_SNR)
-            double_event_count_all = np.append(double_event_count_all, double_event_count)
+            double_event_count_all = np.append(double_event_count_all, double_events_counts)
             photon_intensity_all = np.append(photon_intensity_all, photon_intensity)
             std_photons_all = np.append(std_photons_all, std_photons)
     
+    # ================ CLEAN UP AND FILTER DATA ================
     # remove zeros
     tons = np.trim_zeros(tons)
     toffs = np.trim_zeros(toffs)
@@ -152,16 +172,17 @@ def calculate_kinetics(exp_time, photons_threshold, background_level, photons, f
     SNR_all = SNR_all[filter_indices]
     SBR_all = SBR_all[filter_indices]
 
+    # ================ PROCESS INDIVIDUAL SITES DATA ================
     # PER SITE
-
+    site_counter = 0
     for pick_key in traces_per_pick_and_site.keys():
         for site_key in traces_per_pick_and_site[pick_key].keys():
             trace = traces_per_pick_and_site[pick_key][site_key]['data']
 
-            [ton, toff, binary, tstart, SNR, SBR, sum_photons, mean_photons, photon_intensity, std_photons, tstart_SNR, double_event_count] = calculate_tau_on_times(
+            [ton, toff, binary, tstart, SNR, SBR, sum_photons, mean_photons, photon_intensity, std_photons, tstart_SNR, double_events_counts] = calculate_tau_on_times(
                 trace, photons_threshold, \
                 background_level, \
-                exp_time, mask_level, mask_singles, verbose_flag, i)
+                exp_time, mask_level, mask_singles, verbose_flag, site_counter)
 
             if ton.any() is not False:
                 # ton_dict[f'{i}'] = ton
@@ -174,7 +195,7 @@ def calculate_kinetics(exp_time, photons_threshold, background_level, photons, f
                 # sum_photons_all = np.append(sum_photons_all, sum_photons)
                 # photon_intensity_all = np.append(photon_intensity_all, photon_intensity)
                 # tstart_SNR_all = np.append(tstart_SNR_all, tstart_SNR)
-                # double_event_count_all = np.append(double_event_count_all, double_event_count)
+                # double_event_count_all = np.append(double_event_count_all, double_events_counts)
 
                 ton = np.trim_zeros(ton)
                 distance_to_NP_current = traces_per_pick_and_site[pick_key][site_key]['distance_to_NP']
@@ -182,6 +203,8 @@ def calculate_kinetics(exp_time, photons_threshold, background_level, photons, f
                     int(distance_to_NP_current)
                 except:
                     distance_to_NP_current = 9999999
+                    
+                # ================ SAVE PER-SITE DATA TO FILES ================
                 mean_photons_per_site_filename = os.path.join(mean_photons_per_site_path,
                                                      f'meanphotons_pick_{int(pick_key)}_site_{int(site_key)}_dist_{int(distance_to_NP_current)}.dat')
                 std_photons_per_site_filename = os.path.join(std_photons_per_site_path,
@@ -201,7 +224,9 @@ def calculate_kinetics(exp_time, photons_threshold, background_level, photons, f
                 np.savetxt(sum_photons_per_site_filename, sum_photons, fmt='%.3f')
                 np.savetxt(photons_per_site_filename, photon_intensity, fmt='%.3f')
 
+            site_counter += 1
 
+    # ================ FINAL DATA CLEANING AND FILTERING ================
     # remove zeros
     tons = np.trim_zeros(tons)
     toffs = np.trim_zeros(toffs)
@@ -218,6 +243,7 @@ def calculate_kinetics(exp_time, photons_threshold, background_level, photons, f
     SNR_all = SNR_all[filter_indices]
     SBR_all = SBR_all[filter_indices]
 
+    # ================ GENERATE BINDING TIME VS START TIME PLOT ================
     # Plot binding time vs start time.
     figure_name = 'binding_time_vs_time'
     figure_path = os.path.join(figures_folder, '%s.png' % figure_name)
@@ -228,11 +254,11 @@ def calculate_kinetics(exp_time, photons_threshold, background_level, photons, f
         'Binding time (s) vs. start time (min)' + f"\nSlope: {round(slope, 3)}" + f'\nIntercept: {round(intercept, 3)}')
 
     # The inset_axes parameters are [left, bottom, width, height] in figure fraction.
-    plt.tight_layout()
+    # Note: tight_layout() removed to prevent UserWarnings - bbox_inches='tight' handles layout
     plt.savefig(figure_path, dpi=300, bbox_inches='tight')
-    plt.show()
     plt.close()
 
+    # ================ GENERATE PHOTONS VS TIME PLOT ================
     # PHOTONS
     ax = plot_vs_time_with_hist(sum_photons_all, tstarts/60)
     ax.set_xlabel('Time [min]')
@@ -241,11 +267,12 @@ def calculate_kinetics(exp_time, photons_threshold, background_level, photons, f
 
     figure_name = 'total_photons_vs_time'
     figure_path = os.path.join(figures_folder, '%s.png' % figure_name)
-    plt.tight_layout()
+    # Note: tight_layout() removed to prevent UserWarnings - bbox_inches='tight' handles layout
     plt.savefig(figure_path, dpi=300, bbox_inches='tight')
-    plt.show()
+    
     plt.close()
 
+    # ================ GENERATE PHOTON HISTOGRAM ================
     # HISTOGRAM
     fig, ax = plt.subplots(1, 1)
     bin_edges = np.histogram_bin_edges(sum_photons_all, 'fd')
@@ -257,11 +284,12 @@ def calculate_kinetics(exp_time, photons_threshold, background_level, photons, f
     ax.set_yscale('log')
     figure_name = 'photon_histogram'
     figure_path = os.path.join(figures_folder, '%s.png' % figure_name)
-    plt.tight_layout()
+    # Note: tight_layout() removed to prevent UserWarnings - bbox_inches='tight' handles layout
     plt.savefig(figure_path, dpi=300, bbox_inches='tight')
-    plt.show()
+    
     plt.close()
 
+    # ================ GENERATE PHOTONS PER LOCALIZATION HISTOGRAM ================
     # HISTOGRAM for PHOTONS per localization
     fig, ax = plt.subplots(1, 1)
     bin_edges_photons = np.histogram_bin_edges(photons_plot, 'fd')
@@ -282,11 +310,12 @@ def calculate_kinetics(exp_time, photons_threshold, background_level, photons, f
 
     figure_name = 'photons_localization'
     figure_path = os.path.join(figures_folder, '%s.png' % figure_name)
-    plt.tight_layout()
+    # Note: tight_layout() removed to prevent UserWarnings - bbox_inches='tight' handles layout
     plt.savefig(figure_path, dpi=300, bbox_inches='tight')
-    plt.show()
+    
     plt.close()
 
+    # ================ GENERATE SNR AND SBR PLOTS ================
     # Plots of SNR and SBR
     fig, ax = plt.subplots(1, 1)
     ax.scatter(tstart_SNR_all/60, SNR_all, s=0.85, alpha=0.6, label='SNR')
@@ -297,9 +326,9 @@ def calculate_kinetics(exp_time, photons_threshold, background_level, photons, f
     plt.legend()
     figure_name = 'SNR_SBR_scatter_plot'
     figure_path = os.path.join(figures_folder, '%s.png' % figure_name)
-    plt.tight_layout()
+    # Note: tight_layout() removed to prevent UserWarnings - bbox_inches='tight' handles layout
     plt.savefig(figure_path, dpi=300, bbox_inches='tight')
-    plt.show()
+    
     plt.close()
 
 
@@ -311,8 +340,7 @@ def calculate_kinetics(exp_time, photons_threshold, background_level, photons, f
     # print(f'Nr of events / (nr of traces * time) = {len(tstarts)/(number_of_traces * nr_of_frames * exp_time)}.')
 
 
-
-
+    # ================ SAVE FINAL RESULTS TO FILES ================
     # save data
     t_on_filename = os.path.join(folder, 't_on.dat')
     t_off_filename = os.path.join(folder, 't_off.dat')
@@ -334,20 +362,20 @@ def calculate_kinetics(exp_time, photons_threshold, background_level, photons, f
     np.savetxt(double_event_filename, double_event_count_all, fmt='%.3f')
 
 
+    # ================ PRINT SUMMARY AND UPDATE PKL FILE ================
     # Summary of STEP 3
-    print("\n------ Summary of STEP 3 ------")
-    print(f"Total Events Processed: {len(tstarts)}")
-    print(f"Total Traces Analyzed: {number_of_traces}")
-    print(f"Mask level: {mask_level}")
-    print(f"Events per Trace-Time Ratio: {len(tstarts) / (number_of_traces * nr_of_frames * exp_time):.3f}")
-
-    # Slope and intercept from the fitted linear model
-    print(f"Slope of Binding Time vs. Time: {slope:.3f}")
-    print(f"Intercept of Binding Time vs. Time: {intercept:.3f}")
-    print(f"SNR: {np.mean(SNR_all, axis=None)}")
-    print(f"SBR: {np.mean(SBR_all, axis=None)}")
-    print(f"Double events per event: {np.sum(double_event_count_all)/len(double_event_count_all)}")
-
+    print('\n' + '='*23 + '⚡ STEP 3 SUMMARY ⚡' + '='*23)
+    print(f'   Total Events Processed: {len(tstarts)}')
+    print(f'   Total Traces Analyzed: {number_of_traces}')
+    print(f'   Mask Level: {mask_level}')
+    print(f'   Events per Trace-Time Ratio: {len(tstarts) / (number_of_traces * nr_of_frames * exp_time):.3f}')
+    print(f'   Slope of Binding Time vs. Time: {slope:.3f}')
+    print(f'   Intercept of Binding Time vs. Time: {intercept:.3f}')
+    print(f'   SNR: {np.mean(SNR_all, axis=None):.1f}')
+    print(f'   SBR: {np.mean(SBR_all, axis=None):.1f}')
+    print(f'   Double Events per Event: {np.sum(double_event_count_all)/len(double_event_count_all):.3f}')
+    print(f'   Data saved to t_on, t_off, SNR, and SBR files.')
+    print('='*70)
 
     update_pkl(folder_main, 'SNR', np.mean(SNR_all, axis=None))
     update_pkl(folder_main, 'SBR', np.mean(SBR_all, axis=None))
@@ -355,8 +383,7 @@ def calculate_kinetics(exp_time, photons_threshold, background_level, photons, f
     update_pkl(folder_main, 'Nr of traces', number_of_traces)
     update_pkl(folder_main, 'Events per Trace-Time Ratio', len(tstarts) / (number_of_traces * nr_of_frames * exp_time))
     update_pkl(folder_main, 'Double Events', double_event_count_all)
-    # Confirmation of saved data
-    print("t_on, t_off, t_start, SNR, and SBR data saved to respective files.")
+    
     print('\nDone with STEP 3.')
     
     return
@@ -365,7 +392,7 @@ def calculate_kinetics(exp_time, photons_threshold, background_level, photons, f
 ##############----------------------###############-------------------
 ##############----------------------###############-------------------
 
-
+# ========================== SCRIPT EXECUTION BLOCK ==========================
 if __name__ == '__main__':
 
     # load and open folder and file

@@ -8,6 +8,7 @@ main script uses.
 
 """
 
+# ================ IMPORT LIBRARIES ================
 import os
 import numpy as np
 import scipy.signal as sig
@@ -19,11 +20,13 @@ import matplotlib.pyplot as plt
 import pickle
 
 
+# ================ GLOBAL CONSTANTS ================
 # time resolution at 100 ms
 R = 0.07 # resolution width, in s
 R = 0.00 # resolution width, in s
 
 
+# ================ IMAGE PROCESSING FUNCTIONS ================
 # 2D peak detection algorithm
 # taken from https://stackoverflow.com/questions/3684484/peak-detection-in-a-2d-array
 def detect_peaks(image):
@@ -57,11 +60,13 @@ def detect_peaks(image):
 
     return detected_peaks
 
+# ================ GEOMETRIC CALCULATION FUNCTIONS ================
 # distance calculation circle
 def distance(x, y, xc, yc):
     d = ((x - xc)**2 + (y - yc)**2)**0.5
     return d
 
+# ================ GAUSSIAN FUNCTIONS ================
 def gaussian_2D_angle(xy_tuple, amplitude, x0, y0, a, b, c, offset):
     (x, y) = xy_tuple
     g = offset + amplitude*np.exp( -(a*(x-x0)**2 + 2*b*(x-x0)*(y-y0) + c*(y-y0)**2 ) )
@@ -76,6 +81,7 @@ def gaussian_2D_angle(xy_tuple, amplitude, x0, y0, a, b, c, offset):
 #     return g.ravel()
 
 def abc_to_sxsytheta(a, b, c):
+    # ================ CALCULATE GAUSSIAN PARAMETERS FROM COEFFICIENTS ================
     theta_rad = 0.5*np.arctan(2*b/(a-c))
     theta_deg = 360*theta_rad/(2*np.pi)
     aux_sx = a*(np.cos(theta_rad))**2 + \
@@ -88,6 +94,7 @@ def abc_to_sxsytheta(a, b, c):
     sy = np.sqrt(0.5/aux_sy)
     return theta_deg, sx, sy
 
+# ================ STATISTICAL FUNCTIONS ================
 # Calculate coefficient of determination
 def calc_r2(observed, fitted):
     avg_y = observed.mean()
@@ -117,6 +124,7 @@ def perpendicular_distance(slope, intercept, x_point, y_point):
     d = numerator/denominator
     return d
 
+# ================ FILE AND DIRECTORY UTILITIES ================
 def manage_save_directory(path, new_folder_name):
     # Small function to create a new folder if not exist.
     new_folder_path = os.path.join(path, new_folder_name)
@@ -124,6 +132,7 @@ def manage_save_directory(path, new_folder_name):
         os.makedirs(new_folder_path)
     return new_folder_path
 
+# ================ DATA BINNING FUNCTIONS ================
 def classification(value, totalbins, rango):
     # Bin the data. Classify a value into a bin.
     # totalbins = number of bins to divide rango (range)
@@ -150,6 +159,7 @@ def classification(value, totalbins, rango):
     return numbin
 
 
+# ================ SIGNAL PROCESSING FUNCTIONS ================
 def mask(number_of_dips=1):
     # Handle special cases first
     if number_of_dips == -1:
@@ -168,6 +178,7 @@ def mask(number_of_dips=1):
     return mask_array
 
 
+# ================ BINARY TRACE ANALYSIS FUNCTIONS ================
 def find_consecutive_ones(binary_trace):
     sequence_lengths = []
     count = 0
@@ -190,257 +201,214 @@ def find_consecutive_ones(binary_trace):
 
 
 
+# ================ BINDING TIME CALCULATION FUNCTIONS ================
 def calculate_tau_on_times(trace, threshold, bkg, exposure_time, mask_level, mask_singles, verbose_flag, index):
     # exposure_time in ms
     # threshold in number of photons (integer)
 
-    number_of_frames = int(trace.shape[0])
-    # while the trace is below the threshold leave 0, while is above replace by 1
-    zero_trace = np.zeros(number_of_frames, dtype = int)
-    # indices = np.where(np.logical_and(trace < 200, trace > 2500))
-    binary_trace = np.where(trace < threshold, zero_trace, 1)
-    event_lengths = find_consecutive_ones(binary_trace)
+    # ================ INITIALIZE TRACE PROCESSING ================
+    # Initial trace processing
+    binary_trace = np.where(trace < threshold, 0, 1)
     photons_trace = np.where(trace < threshold, 0, trace)
-    # calculate array of consecutive differences
     diff_binary = np.diff(binary_trace)
-
     stitched_photons = photons_trace.copy()
-    if mask_level == 1:
-        # mask 1 step dips using convolution
-        if verbose_flag:
-            print('Using convolution to mask single dips...')
-        conv_one_dip = sig.convolve(diff_binary, mask(1))
-        localization_index_dips = np.where(conv_one_dip == 1)[0] - 1
-        binary_trace[localization_index_dips] = 1
-        for idx in localization_index_dips:
-            # ensure we are not trying to interpolate the first or last index
-            if idx > 0 and idx < len(photons_trace) - 1:
-                # interpolate by averaging the values before and after the dip
-                stitched_photons[idx] = (photons_trace[idx - 1] + photons_trace[idx + 1]) / 2
-    elif mask_level == 2:
-        # mask 2 step dips using convolution
-        if verbose_flag:
-            print('Using convolution to mask double dips...')
-        conv_two_dip = sig.convolve(diff_binary, mask(2))
-        localization_index_dips = np.where(conv_two_dip == 1)[0] - 1
-        binary_trace[localization_index_dips] = 1
-        localization_index_dips = np.where(conv_two_dip == 1)[0] - 2
-        binary_trace[localization_index_dips] = 1
-        for idx in localization_index_dips:
-            if idx > 0 and idx < len(photons_trace) - 2:
-                # linearly interpolate across the 2-step gap
-                stitched_photons[idx] = (photons_trace[idx - 1] + photons_trace[idx + 2]) / 2
-                stitched_photons[idx + 1] = stitched_photons[
-                    idx]  # for a 2-step dip, we can duplicate the interpolation
-    elif mask_level > 2:
-        # several steps mask
-        if verbose_flag:
-            print('Using convolution to mask %d dips...' % mask_level)
+    
+    # ================ APPLY MASKING FOR DIPS ================
+    # Apply masking based on mask_level
+    if verbose_flag and mask_level > 0:
+        print(f'Using convolution to mask {mask_level} dips...')
+    
+    if mask_level > 0:
+        # Apply appropriate mask based on mask_level
         conv = sig.convolve(diff_binary, mask(mask_level))
         localization_index_dips = np.where(conv == 1)[0] - 1
         binary_trace[localization_index_dips] = 1
-        localization_index_dips = np.where(conv == 1)[0] - 2
-        binary_trace[localization_index_dips] = 1
-        for idx in localization_index_dips:
-            if idx > 1 and idx < len(photons_trace) - mask_level:
-                # Assuming a linear interpolation with the points immediately outside the gap
-                before = photons_trace[idx - 1]
-                after = photons_trace[idx + mask_level]
-                increment = (after - before) / (mask_level + 1)
-                for i in range(1, mask_level + 1):
-                    stitched_photons[idx + i - 1] = before + increment * i
+        
+        # ================ HANDLE DIFFERENT MASK LEVELS ================
+        if mask_level == 1:
+            # Handle single dips
+            for idx in localization_index_dips:
+                if idx > 0 and idx < len(photons_trace) - 1:
+                    stitched_photons[idx] = (photons_trace[idx - 1] + photons_trace[idx + 1]) / 2
+        elif mask_level == 2:
+            # Handle double dips
+            dips2 = np.where(conv == 1)[0] - 2
+            binary_trace[dips2] = 1
+            for idx in dips2:
+                if idx > 0 and idx < len(photons_trace) - 2:
+                    stitched_photons[idx] = (photons_trace[idx - 1] + photons_trace[idx + 2]) / 2
+                    stitched_photons[idx + 1] = stitched_photons[idx]
+        elif mask_level > 2:
+            # Handle multiple dips
+            dips2 = np.where(conv == 1)[0] - 2
+            binary_trace[dips2] = 1
+            for idx in dips2:
+                if idx > 1 and idx < len(photons_trace) - mask_level:
+                    before = photons_trace[idx - 1]
+                    after = photons_trace[idx + mask_level]
+                    increment = (after - before) / (mask_level + 1)
+                    for i in range(1, mask_level + 1):
+                        stitched_photons[idx + i - 1] = before + increment * i
+    elif verbose_flag:
+        print('No convolution is going to be applied.')
 
-    else:
-        # no mask defined for convolution
-        if verbose_flag:
-            print('No convolution is going to be applied.')
-
-    # remove 1 step blips using convolution
+    # ================ APPLY MASKING FOR BLIPS ================
+    # Mask single blips if required
     if mask_singles:
         if verbose_flag:
             print('Using convolution to mask single blips...')
-
         conv_one_blip = sig.convolve(diff_binary, mask(-1))
         localization_index_blips = np.where(np.abs(conv_one_blip) == 1)[0] - 1
         binary_trace[localization_index_blips] = 0
-        
-    # now, with the trace "restored" we can estimate tau_on...
     
-    # estimate number of frames the fluorophore was ON
-    # keep indexes where localizations have been found (> 1)
+    # ================ BEGIN BINDING TIME CALCULATIONS ================
+    # Calculate binding times
     if verbose_flag:
         print('Calculating binding times...')
+    
+    # ================ PROCESS LOCALIZATION INDICES ================
+    # Find localization indices and steps
     localization_index = np.where(binary_trace > 0)[0]
+    if len(localization_index) == 0:
+        return np.array([False] * 11)
+        
     localization_index_diff = np.diff(localization_index)
     keep_steps = np.where(localization_index_diff == 1)[0]
     localization_index_steps = localization_index[keep_steps]
-    binary_trace[localization_index_steps] = 1   
-
-
-
-    # Starting time of the binary trace
+    binary_trace[localization_index_steps] = 1
+    
+    # ================ IDENTIFY EVENT STARTING POINTS ================
+    # Determine starting points of events
     try:
-        localization_index_start = []
-        localization_index_start.append(localization_index[0]-1)
-        localization_index_start_remaining = [localization_index[i+1]-1 for i, k in enumerate(localization_index_diff) if (k > 1)]
-        localization_index_start.extend(localization_index_start_remaining)
+        localization_index_start = [localization_index[0] - 1]
+        localization_index_start.extend([
+            localization_index[i+1] - 1 
+            for i, k in enumerate(localization_index_diff) 
+            if k > 1
+        ])
     except:
         return np.array([False] * 11)
-
-
-    # conv_start_time = sig.convolve(diff_binary, mask(-99))
-    # localization_index_start = np.where(conv_start_time == 1)[0] - 1
-
-    # ### uncomment plot to check filters and binary trace
-    # plt.figure()
-    # plt.plot(trace/max(trace),'-')
-    # plt.plot(photons_trace/max(photons_trace),'ok')
-    # # plt.plot(binary_trace)
-    # # plt.plot(conv_one_blip)
-    # # plt.plot(conv_one_dip)
-    # # plt.plot(conv_two_dip)
-    # plt.xlim([0,10000])
-    # plt.show()
     
-    # calculate tau on and off,
-    # t_on = [len(l[1:-1]) for l in [list(g) for k, g in groupby(list(binary_trace), key = lambda x:x!=0) if k] if len(l) > 2]
-    # t_on = [len(l) for l in [list(g) for k, g in groupby(list(binary_trace), key=lambda x: x != 0) if k]]
-    # t_off = [len(l) for l in [list(g) for k, g in groupby(list(binary_trace), key = lambda x:x==0) if k]]
-    # calculate SNR
-
-    # Photons_trace is filtered using the threshold, trace is not. I think it's more correct here to multiply by trace.
-    # Using interpolated trace.
+    # ================ APPLY BINARY MASK TO TRACE ================
+    # Process the photon trace with binary mask
     new_photon_trace = stitched_photons * binary_trace
-
-
-
+    
+    # ================ CALCULATE SEGMENT STATISTICS ================
+    # Calculate segment statistics
     avg_photons = []
     std_photons = []
     start_indices_of_interest = []
-    photon_intensity = []
-
-    # Iterate through the starting indices and the lengths of segments to calculate averages
+    
     for start_index in localization_index_start:
-        start_index += 1
-        end_index = len(new_photon_trace)
-        for i in range(start_index + 1, len(new_photon_trace)):
-            if new_photon_trace[i] == 0:
-                end_index = i
-                break
-
-        segment = new_photon_trace[start_index:end_index]
+        segment_start = start_index + 1  # Use separate variable instead of modifying loop variable
+        # Find end of current segment
+        end_index = next((i for i in range(segment_start + 1, len(new_photon_trace)) 
+                          if new_photon_trace[i] == 0), len(new_photon_trace))
+        
+        segment = new_photon_trace[segment_start:end_index]
         if len(segment) > 4:
             avg_photons.append(np.mean(segment[1:-1]))
             std_photons.append(np.std(segment[1:-1], ddof=1))
-            start_indices_of_interest.append(start_index)
-
+            start_indices_of_interest.append(segment_start)
+    
+    # ================ PROCESS BINDING EVENTS ================
+    # Process on and off times using groupby
     t_on = []
     double_events_counts = []
+    photon_intensity = []
+    
     # Group by consecutive nonzero elements
-    for k, g in groupby(new_photon_trace, key=lambda x: x > 0.01):
-        if k:  # If the key is True (nonzero elements)
-            group_list = list(g)  # Convert group to list
-            group_list_diff = np.diff(group_list)
+    for is_on, group in groupby(new_photon_trace, key=lambda x: x > 0.01):
+        if is_on:  # Process ON segments
+            group_list = list(group)
             if len(group_list) > 3:
-                group_mean = np.mean(group_list[1:-1], axis=None)
-                group_std = np.std(group_list[1:-1], axis=None)
+                group_mean = np.mean(group_list[1:-1])
             else:
-                group_mean = np.mean(group_list, axis=None)
-                group_std = np.std(group_list, axis=None)
-            # Remove first index of double event counts since first frame doesn't include full statistics.
+                group_mean = np.mean(group_list)
+            
+            # ================ DETECT DOUBLE EVENTS ================
+            # Handle double events detection - ensure every ON segment gets a count
             if len(group_list) > 7:
                 window_detection_index = detect_double_events_rolling(group_list, 4)
                 double_events_counts.append(len(window_detection_index))
-            diff_jumps = np.where(group_list_diff[1:] > group_mean * 0.6)
-            ratios = np.array(group_list[1:]) / np.array(group_list[:-1])
-            ratio_jumps = np.where(ratios[1:] > 1.8)
-            # photon_trace_file = os.path.join(r'C:\Users\olled\Documents\Python Scripts\DNA-PAINT_thermometry-main\photon_traces', f'photon_trace_{index}.dat')
-            # np.savetxt(photon_trace_file, group_list, fmt = '%.3f')
-
-            first_frame = group_list[0]/group_mean
-            last_frame = group_list[-1]/group_mean
+            else:
+                double_events_counts.append(0)  # Add zero count for consistency
+            
+            # ================ HANDLE PARTIAL FRAMES ================
+            # Process first and last frames to account for partial events
+            first_frame = min(group_list[0]/group_mean, 1)
+            last_frame = min(group_list[-1]/group_mean, 1)
+            
+            # Calculate on-time and collect photon intensity
             if len(group_list) > 2:
-                t_on.append(len(group_list[1:-1]) + np.min([first_frame, 1]) + np.min([last_frame, 1]))
+                t_on.append(len(group_list[1:-1]) + first_frame + last_frame)
                 photon_intensity.extend(group_list[1:-1])
             else:
                 t_on.append(len(group_list))
                 photon_intensity.extend(group_list)
-            if ratio_jumps[0].any() > 0:
-                # double_events_counts.append(len(diff_jumps[0]))
-                pass
-
-
-    t_off = []
-    # Group by consecutive zero elements
-    for k, g in groupby(new_photon_trace, key=lambda x: x < 0.01):
-        if k:  # If the key is True (zero elements)
-            group_list = list(g)  # Convert group to list
-            t_off.append(len(group_list))  # Append the length of the group to t_off
-
-
-
-    # Compute avg and std when a docking location is emitting light. Since we are only considering the middle values of
-    # the array (array[1:-1]) since the in the first and last values we can get docking locations which are not on
-    # during the entire duration of the exposure time. We must therefore consider arrays larger than 3 to get more than
-    # one value.
-    sum_photons = [np.sum(np.array(l)) for l in [list(g) for k, g in groupby(list(new_photon_trace), key = lambda x:x!=0) if k]]
-    # avg_photons = [np.mean(np.array(l[1:-1])) for l in [list(g) for k, g in groupby(list(new_photon_trace), key = lambda x:x!=0) if k] if len(l) > 4]
-    # std_photons = [np.std(np.array(l[1:-1]), ddof = 1) for l in [list(g) for k, g in groupby(list(new_photon_trace), key = lambda x:x!=0) if k] if len(l) > 4]
-
-
-
+    
+    # ================ PROCESS OFF TIMES ================
+    # Process off-times
+    t_off = [len(list(group)) for is_off, group in groupby(new_photon_trace, key=lambda x: x < 0.01) if is_off]
+    
+    # Calculate sum of photons for ON segments
+    sum_photons = [np.sum(list(group)) for is_on, group in groupby(new_photon_trace, key=lambda x: x != 0) if is_on]
+    
+    # ================ HANDLE EDGE CASES ================
+    # Handle edge cases - adjust arrays based on trace start/end conditions
     if binary_trace[0] == 1:
         t_on = t_on[1:]
         localization_index_start = localization_index_start[1:]
     else:
         t_off = t_off[1:]
+        
     if binary_trace[-1] == 1:
         t_on = t_on[:-1]
         localization_index_start = localization_index_start[:-1]
     else:
-        t_off = t_off[:-1]     
-        
+        t_off = t_off[:-1]
+    
+    # ================ PREPARE FINAL RESULTS ================
+    # Convert all lists to numpy arrays
     t_on = np.asarray(t_on)
+    t_off = np.asarray(t_off)
     sum_photons = np.asarray(sum_photons)
-    std_photons = np.asarray(std_photons)
     photon_intensity = np.asarray(photon_intensity)
     double_events_counts = np.asarray(double_events_counts)
-    t_off = np.asarray(t_off)
     start_time = np.asarray(localization_index_start)
-
     start_time_avg_photons = np.asarray(start_indices_of_interest)
-
     avg_photons_np = np.asarray(avg_photons)
     std_photons_np = np.asarray(std_photons)
-
-    # TODO: SNR & SBR vs. time.
-    SNR = avg_photons_np/std_photons_np
-    SBR = avg_photons_np/bkg
+    
+    # ================ CALCULATE SIGNAL METRICS ================
+    # Calculate SNR and SBR
+    SNR = avg_photons_np / std_photons_np
+    SBR = avg_photons_np / bkg
+    
     if verbose_flag:
         print('---------------------------')
-
-    if False and index in [0, 1, 2, 3, 4, 5, 6, 7, 8]:
-        plt.scatter(start_time*exposure_time, t_on*exposure_time, s=0.8), plt.show()
-
-
-    return (t_on*exposure_time, t_off*exposure_time, binary_trace, start_time*exposure_time, SNR, SBR, sum_photons,
-            avg_photons, photon_intensity, std_photons, start_time_avg_photons*exposure_time, double_events_counts)
+    
+    # Debug visualization (disabled by default)
+    if False and index in range(9):
+        plt.scatter(start_time*exposure_time, t_on*exposure_time, s=0.8)
+        plt.show()
+    
+    # Return all calculated results with exposure time applied to time-based values
+    return (t_on*exposure_time, t_off*exposure_time, binary_trace, start_time*exposure_time, 
+            SNR, SBR, sum_photons, avg_photons, photon_intensity, std_photons, 
+            start_time_avg_photons*exposure_time, double_events_counts)
 
 
 def detect_double_events_rolling(events, window_size=2, threshold=1.5):
     # Calculate rolling averages using a convolution approach
     window_means = np.convolve(events, np.ones(window_size) / window_size, mode='valid')
 
-    # Ensure the array to compare has the same length as window_means
-    # The comparison array should start from window_size-1 and go up to the length of window_means
-    event_comparison_array = events[window_size - 1:window_size - 1 + len(window_means)]
-
     # Find indices where event counts exceed the rolling mean threshold
-    double_events = np.where(event_comparison_array > window_means * threshold)[0] + window_size - 1
+    # We can simplify by directly comparing the relevant slice of events with window_means
+    return np.where(events[window_size-1:window_size-1+len(window_means)] > window_means * threshold)[0] + window_size - 1
 
-    return double_events
 
-
+# ================ PROBABILITY DENSITY FUNCTIONS ================
 # definition of hyperexponential p.d.f.
 def hyperexp_func(time, real_binding_time, short_on_time, ratio):
     beta_binding_time = 1/real_binding_time
@@ -460,6 +428,7 @@ def monoexp_func(time, real_binding_time, short_on_time, amplitude):
     f = beta_binding_time*np.exp(-time*beta_binding_time)
     return f
 
+# ================ ERROR-ADJUSTED PROBABILITY FUNCTIONS ================
 # definition of hyperexponential p.d.f. including instrumental error
 def hyperexp_func_with_error(time, real_binding_time, short_on_time, ratio):
     beta_binding_time = 1/real_binding_time
@@ -490,6 +459,7 @@ def monoexp_func_with_error(time, real_binding_time, short_on_time, amplitude):
     f_mono_new = np.exp(0.5*(beta*R)**2)*G*f_mono
     return f_mono_new
 
+# ================ LOG LIKELIHOOD FUNCTIONS ================
 # definition of hyperlikelihood function
 def log_likelihood_hyper(theta_param, data):
     real_binding_time = theta_param[0]
@@ -506,6 +476,12 @@ def log_likelihood_hyper_with_error(theta_param, data):
     short_on_time = theta_param[1]
     ratio = theta_param[2]
     pdf_data = hyperexp_func_with_error(data, real_binding_time, short_on_time, ratio)
+    
+    # Filter out invalid values before taking log to prevent warnings
+    pdf_data = pdf_data[pdf_data > 0]  # Remove zeros and negative values
+    if len(pdf_data) == 0:
+        return np.inf  # Return infinity if no valid data points
+        
     log_pdf = np.log(pdf_data)
     log_pdf = log_pdf[~np.isinf(log_pdf)]
     log_pdf = log_pdf[~np.isnan(log_pdf)]
@@ -520,6 +496,12 @@ def log_likelihood_mono_with_error(theta_param, data):
     short_on_time = theta_param[1]
     ratio = theta_param[2]
     pdf_data = monoexp_func(data, real_binding_time, short_on_time, ratio)
+    
+    # Filter out invalid values before taking log to prevent warnings
+    pdf_data = pdf_data[pdf_data > 0]  # Remove zeros and negative values
+    if len(pdf_data) == 0:
+        return np.inf  # Return infinity if no valid data points
+        
     log_pdf = np.log(pdf_data)
     log_pdf = log_pdf[~np.isinf(log_pdf)]
     log_pdf = log_pdf[~np.isnan(log_pdf)]
@@ -529,6 +511,7 @@ def log_likelihood_mono_with_error(theta_param, data):
     return log_likelihood
 
 
+# ================ ALTERNATIVE LOG LIKELIHOOD FUNCTIONS ================
 def log_likelihood_mono_with_error_alt(theta_param, data):
     # Unpack the parameters
     loc = theta_param[0]
@@ -564,7 +547,7 @@ def log_likelihood_mono_with_error_one_param(theta_param, data):
     return log_likelihood
 
 
-
+# ================ PLOTTING FUNCTIONS ================
 def plot_vs_time_with_hist(data, time, order = 3, fit_line = False):
     dict = {}
     # Start with a square Figure.
@@ -579,6 +562,7 @@ def plot_vs_time_with_hist(data, time, order = 3, fit_line = False):
     # Create the main plot area.
     ax = fig.add_subplot(gs[0, 0])
 
+    # ================ DATA AGGREGATION FOR PLOTTING ================
     for x, y in zip(time, data):
         if x in dict:
             dict[x] = np.append(dict[x], y)
@@ -594,17 +578,20 @@ def plot_vs_time_with_hist(data, time, order = 3, fit_line = False):
     unique_time_values = unique_time_values[sorted_indices]
     summed_data = summed_data[sorted_indices]
 
+    # ================ DATA FILTERING AND VISUALIZATION ================
     filtered_data = sig.savgol_filter(summed_data, window_length=int(len(summed_data)/20), polyorder=1)
     if fit_line:
         x_fitted, y_fitted, slope, intercept, Rsquared = fit_linear(unique_time_values, filtered_data)
     ax.scatter(unique_time_values, summed_data, s=0.8)
     ax.plot(unique_time_values, filtered_data, 'r--', linewidth=3, alpha = 0.8)
 
+    # ================ CREATE MARGINAL HISTOGRAM ================
     bin_edges = np.histogram_bin_edges(data, 'fd')
     # Create the marginal plot on the right of the main plot, sharing the y-axis with the main plot.
     ax_histy = fig.add_subplot(gs[0, 1], sharey=ax)
     ax_histy.hist(data, bins=bin_edges, orientation='horizontal')
 
+    # ================ FINALIZE PLOT LAYOUT ================
     # Make sure the marginal plot's y-axis ticks don't overlap with the main plot.
     plt.setp(ax_histy.get_yticklabels(), visible=False)
     x_limit = [0, unique_time_values[-1]]
@@ -619,7 +606,7 @@ def plot_vs_time_with_hist(data, time, order = 3, fit_line = False):
     return ax
 
 
-
+# ================ SERIALIZATION UTILITIES ================
 def update_pkl(file_path, key, value):
     # Check if the file exists
     file_path_pkl = os.path.join(file_path, 'parameters.pkl')
