@@ -10,7 +10,6 @@ Analysis pipeline for DNA-PAINT thermometry experiments.
    - Check if Python is installed
    - Create a virtual environment
    - Install required packages
-   - Test dependencies
    - Start the analysis GUI
 
 ## Requirements
