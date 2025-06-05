@@ -200,7 +200,16 @@ def split_hdf5(hdf5_file, folder, recursive_flag, rectangles_flag, lpx_filter,
     print(f'   All data saved in "split_data" directory.')
     print('='*70)
     print('\nDone with STEP 1.')
-    return
+    
+    # ================ RETURN RESULTS FOR CONSOLIDATION ================
+    results = {
+        'total_files_processed': len(list_of_files),
+        'picks_found': len(pick_numbers),
+        'localizations_before_filter': len(frame),
+        'localizations_after_filter': len(frame[filter_index]),
+        'filter_efficiency': len(frame[filter_index]) / len(frame) if len(frame) > 0 else 0
+    }
+    return results
 
 #####################################################################
 #####################################################################

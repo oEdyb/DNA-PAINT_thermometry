@@ -119,7 +119,30 @@ def estimate_binding_unbinding_times(exp_time, rango, working_folder, \
         print('='*60)
     print('\nDone with STEP 4.')
 
-    return
+    # ================ RETURN RESULTS FOR CONSOLIDATION ================
+    results = {
+        'tau_long_seconds': solutions_on[0][0],
+        'tau_long_error_plus': solutions_on[0][1], 
+        'tau_long_error_minus': solutions_on[0][2],
+        'tau_long_off_seconds': solutions_off[0][0],
+        'tau_long_off_error_plus': solutions_off[0][1],
+        'tau_long_off_error_minus': solutions_off[0][2],
+        'ratio_on': solutions_on[2][0],
+        'ratio_off': solutions_off[2][0]
+    }
+    
+    # Add hyperexponential-specific results if applicable
+    if hyper_exponential_flag:
+        results.update({
+            'tau_short_seconds': solutions_on[1][0],
+            'tau_short_error_plus': solutions_on[1][1],
+            'tau_short_error_minus': solutions_on[1][2],
+            'tau_short_off_seconds': solutions_off[1][0],
+            'tau_short_off_error_plus': solutions_off[1][1],
+            'tau_short_off_error_minus': solutions_off[1][2]
+        })
+    
+    return results
 
 ########################################################################
 ########################################################################

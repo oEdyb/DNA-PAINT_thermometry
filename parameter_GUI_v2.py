@@ -21,7 +21,12 @@ class AnalysisThread(threading.Thread):
 
     def run(self):
         params_str = str(self.params)
-        command = (["python", "find_super_resolved_temp_clean.py", "--selected_file", self.selected_file, "--working_folder",
+        
+        # Use the virtual environment's Python executable
+        venv_python = os.path.join("thermometry_env_new", "Scripts", "python.exe")
+        python_executable = venv_python if os.path.exists(venv_python) else "python"
+        
+        command = ([python_executable, "find_super_resolved_temp_clean.py", "--selected_file", self.selected_file, "--working_folder",
                     self.working_folder, "--step"] + [str(step) for step in self.steps_to_execute] + ["--params", params_str])
         result = subprocess.run(command)
         if result.returncode == 0:

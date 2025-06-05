@@ -906,7 +906,32 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
     print('='*70)
     print('\nDone with STEP 2.')
 
-    return
+    # ================ RETURN RESULTS FOR CONSOLIDATION ================
+    results = {
+        'total_picks_processed': total_number_of_picks,
+        'total_time_minutes': total_time_min,
+        'histogram_bin_size_nm': hist_2D_bin_size,
+        'mean_photons': photons_mean,
+        'mean_background': np.mean(bkg_concat, axis=None),
+        'total_localizations': len(photons_concat),
+        'mean_locs_per_pick': np.mean(locs_of_picked),
+        'std_locs_per_pick': np.std(locs_of_picked)
+    }
+    
+    # Add relative positions statistics if available
+    if len(positions_concat_origami) > 0:
+        results.update({
+            'mean_binding_site_distance_nm': np.mean(positions_concat_origami),
+            'std_binding_site_distance_nm': np.std(positions_concat_origami)
+        })
+    
+    if NP_flag and len(positions_concat_NP) > 0:
+        results.update({
+            'mean_np_distance_nm': np.mean(positions_concat_NP),
+            'std_np_distance_nm': np.std(positions_concat_NP)
+        })
+    
+    return results
         
 #####################################################################
 #####################################################################

@@ -386,7 +386,26 @@ def calculate_kinetics(exp_time, photons_threshold, background_level, photons, f
     
     print('\nDone with STEP 3.')
     
-    return
+    # ================ RETURN RESULTS FOR CONSOLIDATION ================
+    results = {
+        'total_events': len(tstarts),
+        'total_traces': number_of_traces,
+        'mask_level': mask_level,
+        'events_per_trace_time_ratio': len(tstarts) / (number_of_traces * nr_of_frames * exp_time),
+        'binding_time_slope': slope,
+        'binding_time_intercept': intercept,
+        'mean_snr': np.mean(SNR_all, axis=None),
+        'mean_sbr': np.mean(SBR_all, axis=None),
+        'double_events_per_event': np.sum(double_event_count_all) / len(double_event_count_all) if len(double_event_count_all) > 0 else 0,
+        'mean_ton_seconds': np.mean(tons),
+        'std_ton_seconds': np.std(tons),
+        'mean_toff_seconds': np.mean(toffs),
+        'std_toff_seconds': np.std(toffs),
+        'mean_sum_photons': np.mean(sum_photons_all),
+        'std_sum_photons': np.std(sum_photons_all)
+    }
+    
+    return results
 
 ##############----------------------###############-------------------
 ##############----------------------###############-------------------

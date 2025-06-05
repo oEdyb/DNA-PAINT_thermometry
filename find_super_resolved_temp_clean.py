@@ -12,6 +12,9 @@ import os
 import re
 import tkinter as tk
 import tkinter.filedialog as fd
+import pandas as pd
+import json
+from datetime import datetime
 
 import numpy as np
 
@@ -25,7 +28,24 @@ import argparse
 from ast import literal_eval
 
 #####################################################################
-# TODO: Print all relevant measurements at the end of this script.
+
+def save_consolidated_results(results_dict, metadata_dict, working_folder):
+    """Save consolidated results to CSV and metadata to JSON"""
+    
+    # ================ SAVE RESULTS TO CSV ================
+    results_df = pd.DataFrame([results_dict])
+    csv_path = os.path.join(working_folder, 'results.csv')
+    results_df.to_csv(csv_path, index=False)
+    
+    # ================ SAVE METADATA TO JSON ================
+    metadata_dict['analysis_timestamp'] = datetime.now().isoformat()
+    metadata_path = os.path.join(working_folder, 'analysis_metadata.json')
+    with open(metadata_path, 'w') as f:
+        json.dump(metadata_dict, f, indent=2)
+    
+    print(f'\n📊 Results saved to: {csv_path}')
+    print(f'📋 Metadata saved to: {metadata_path}')
+
 def run_analysis(selected_file, working_folder, step, params):
 
     number_of_frames = params.get('number_of_frames', 0)
@@ -53,6 +73,18 @@ def run_analysis(selected_file, working_folder, step, params):
     mask_singles = params.get('mask_singles', 0)
     photon_threshold_flag = False
 
+    # ================ INITIALIZE RESULTS AND METADATA DICTIONARIES ================
+    results_dict = {
+        'sample_name': os.path.basename(selected_file),
+        'working_folder': working_folder
+    }
+    
+    metadata_dict = {
+        'analysis_parameters': params,
+        'file_path': selected_file,
+        'steps_executed': [str(i+1) for i, enabled in enumerate(step) if enabled == 'True']
+    }
+
     # ================ ANALYSIS PARAMETERS SUMMARY ================
     print('\n' + '='*18 + '⚙️ ANALYSIS PARAMETERS ⚙️' + '='*18)
     print(f'   Exposure Time: {exp_time}s | Frames: {number_of_frames} | Docking Sites: {docking_sites}')
@@ -66,14 +98,12 @@ def run_analysis(selected_file, working_folder, step, params):
     print(f'   Steps: {", ".join(steps_enabled)}')
     print('='*65)
 
-    # mask_level = 10
-
-
-
     if step[0] == 'True':
-        # run step
-        step1.split_hdf5(selected_file, working_folder, recursive_flag, rectangles_flag,
+        # ================ RUN STEP 1 ================
+        step1_results = step1.split_hdf5(selected_file, working_folder, recursive_flag, rectangles_flag,
                          lpx_filter, lpy_filter, verbose_flag, NP_flag)
+        if step1_results:
+            results_dict.update({f'step1_{k}': v for k, v in step1_results.items()})
     else:
         print('\nSTEP 1 was not executed.')
         
@@ -82,10 +112,12 @@ def run_analysis(selected_file, working_folder, step, params):
     # folder and file management
     step2_working_folder = os.path.join(working_folder, 'split_data')
     if step[1] == 'True':
-        # run step
-        step2.process_dat_files(number_of_frames, exp_time, step2_working_folder, \
+        # ================ RUN STEP 2 ================
+        step2_results = step2.process_dat_files(number_of_frames, exp_time, step2_working_folder, \
                               docking_sites, NP_flag, pixel_size, pick_size, \
                               radius_of_pick_to_average, th, plot_flag, verbose_flag)
+        if step2_results:
+            results_dict.update({f'step2_{k}': v for k, v in step2_results.items()})
     else:
         print('\nSTEP 2 was not executed.')
         
@@ -94,7 +126,7 @@ def run_analysis(selected_file, working_folder, step, params):
     # folder and file management
     step3_working_folder = os.path.join(step2_working_folder, 'kinetics_data')
     if step[2] == 'True':
-        # run step
+        # ================ RUN STEP 3 ================
         list_of_files_step3 = os.listdir(step3_working_folder)
         all_traces_filename = [f for f in list_of_files_step3 if re.search('TRACES_ALL',f)][0]
         bkg_filename = [f for f in os.listdir(step2_working_folder) if re.search('bkg', f)][0]
@@ -102,10 +134,12 @@ def run_analysis(selected_file, working_folder, step, params):
         bkg = np.loadtxt(os.path.join(step2_working_folder, bkg_filename))
         photons = np.loadtxt(os.path.join(step2_working_folder, photons_filename))
         background_level = np.mean(bkg, axis=None)
-        step3.calculate_kinetics(exp_time, photons_threshold, background_level, photons,\
+        step3_results = step3.calculate_kinetics(exp_time, photons_threshold, background_level, photons,\
                                  step2_working_folder, \
                                  all_traces_filename, mask_level, mask_singles, number_of_frames, verbose_flag,
                                  photon_threshold_flag)
+        if step3_results:
+            results_dict.update({f'step3_{k}': v for k, v in step3_results.items()})
     else:
         print('\nSTEP 3 was not executed.')
     
@@ -114,14 +148,19 @@ def run_analysis(selected_file, working_folder, step, params):
     # folder and file management
     step4_working_folder = step3_working_folder
     if step[3] == 'True':
-        # run step
-        step4.estimate_binding_unbinding_times(exp_time, rango, step4_working_folder,
+        # ================ RUN STEP 4 ================
+        step4_results = step4.estimate_binding_unbinding_times(exp_time, rango, step4_working_folder,
                                         initial_params, likelihood_err_param,
                                         opt_display_flag, hyper_exponential_flag, verbose_flag)
+        if step4_results:
+            results_dict.update({f'step4_{k}': v for k, v in step4_results.items()})
     else:
         print('\nSTEP 4 was not executed.')
     
     #####################################################################
+    
+    # ================ SAVE CONSOLIDATED RESULTS ================
+    save_consolidated_results(results_dict, metadata_dict, working_folder)
     
     print('\nProcess done.')
     
