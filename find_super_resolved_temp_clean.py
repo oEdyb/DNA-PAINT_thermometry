@@ -32,19 +32,60 @@ from ast import literal_eval
 def save_consolidated_results(results_dict, metadata_dict, working_folder):
     """Save consolidated results to CSV and metadata to JSON"""
     
-    # ================ SAVE RESULTS TO CSV ================
-    results_df = pd.DataFrame([results_dict])
-    csv_path = os.path.join(working_folder, 'results.csv')
-    results_df.to_csv(csv_path, index=False)
+    # ================ CREATE ANALYSIS FOLDER AND SAVE RESULTS ================
+    analysis_folder = os.path.join(working_folder, 'analysis')
+    os.makedirs(analysis_folder, exist_ok=True)
     
-    # ================ SAVE METADATA TO JSON ================
+    # ================ SAVE RESULTS TO CSV (APPEND IF EXISTS) ================
+    csv_path = os.path.join(analysis_folder, 'results.csv')
+    new_results_df = pd.DataFrame([results_dict])
+    
+    try:
+        if os.path.exists(csv_path):
+            # Append to existing CSV
+            existing_df = pd.read_csv(csv_path)
+            combined_df = pd.concat([existing_df, new_results_df], ignore_index=True)
+            combined_df.to_csv(csv_path, index=False)
+            print(f'📈 Results appended to existing CSV (now {len(combined_df)} rows)')
+        else:
+            # Create new CSV
+            new_results_df.to_csv(csv_path, index=False)
+            print(f'📊 New results CSV created with 1 row')
+    except PermissionError:
+        print(f'\n⚠️  ERROR: Cannot write to {csv_path}')
+        print('   💡 SOLUTION: Close the CSV file if it\'s open in Excel/other programs')
+        print('   📁 Results will be printed to console instead:')
+        print(f'   🔍 {new_results_df.to_string(index=False)}')
+    
+    # ================ SAVE METADATA TO CSV (APPEND IF EXISTS) ================
     metadata_dict['analysis_timestamp'] = datetime.now().isoformat()
-    metadata_path = os.path.join(working_folder, 'analysis_metadata.json')
-    with open(metadata_path, 'w') as f:
-        json.dump(metadata_dict, f, indent=2)
+    metadata_csv_path = os.path.join(analysis_folder, 'analysis_metadata.csv')
+    
+    # Flatten the analysis_parameters dict to individual columns
+    if 'analysis_parameters' in metadata_dict:
+        params = metadata_dict.pop('analysis_parameters')
+        for key, value in params.items():
+            metadata_dict[f'param_{key}'] = value
+    
+    # Convert steps_executed list to string for CSV storage
+    if 'steps_executed' in metadata_dict:
+        metadata_dict['steps_executed'] = ', '.join(metadata_dict['steps_executed'])
+    
+    new_metadata_df = pd.DataFrame([metadata_dict])
+    
+    if os.path.exists(metadata_csv_path):
+        # Append to existing metadata CSV
+        existing_metadata_df = pd.read_csv(metadata_csv_path)
+        combined_metadata_df = pd.concat([existing_metadata_df, new_metadata_df], ignore_index=True)
+        combined_metadata_df.to_csv(metadata_csv_path, index=False)
+        print(f'📋 Metadata appended to existing CSV (now {len(combined_metadata_df)} rows)')
+    else:
+        # Create new metadata CSV
+        new_metadata_df.to_csv(metadata_csv_path, index=False)
+        print(f'📋 New metadata CSV created with 1 row')
     
     print(f'\n📊 Results saved to: {csv_path}')
-    print(f'📋 Metadata saved to: {metadata_path}')
+    print(f'📋 Metadata saved to: {metadata_csv_path}')
 
 def run_analysis(selected_file, working_folder, step, params):
 
