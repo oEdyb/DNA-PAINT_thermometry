@@ -411,13 +411,25 @@ def detect_double_events_rolling(events, window_size=2, threshold=1.5):
 # ================ PROBABILITY DENSITY FUNCTIONS ================
 # definition of hyperexponential p.d.f.
 def hyperexp_func(time, real_binding_time, short_on_time, ratio):
+    # Prevent overflow by limiting extreme values
+    real_binding_time = np.clip(real_binding_time, 1e-6, 1e6)
+    short_on_time = np.clip(short_on_time, 1e-6, 1e6)
+    
     beta_binding_time = 1/real_binding_time
     beta_short_time = 1/short_on_time
     A = ratio/(ratio + 1)
     B = 1/(ratio + 1)
-    f_binding = beta_binding_time*np.exp(-time*beta_binding_time)
-    f_short = beta_short_time*np.exp(-time*beta_short_time)
+    
+    # Clip exponential arguments to prevent overflow
+    exp_arg_binding = np.clip(-time*beta_binding_time, -700, 700)
+    exp_arg_short = np.clip(-time*beta_short_time, -700, 700)
+    
+    f_binding = beta_binding_time*np.exp(exp_arg_binding)
+    f_short = beta_short_time*np.exp(exp_arg_short)
     f = A*f_binding + B*f_short
+    
+    # Replace any inf/nan values with very small positive numbers
+    f = np.where(np.isfinite(f) & (f > 0), f, 1e-30)
     return f
 
 # definition of monoexponential p.d.f.
@@ -431,20 +443,38 @@ def monoexp_func(time, real_binding_time, short_on_time, amplitude):
 # ================ ERROR-ADJUSTED PROBABILITY FUNCTIONS ================
 # definition of hyperexponential p.d.f. including instrumental error
 def hyperexp_func_with_error(time, real_binding_time, short_on_time, ratio):
+    # Prevent overflow by limiting extreme values
+    real_binding_time = np.clip(real_binding_time, 1e-6, 1e6)
+    short_on_time = np.clip(short_on_time, 1e-6, 1e6)
+    
     beta_binding_time = 1/real_binding_time
     beta_short_time = 1/short_on_time
     A = ratio/(ratio + 1)
     B = 1/(ratio + 1)
-    f_binding = beta_binding_time*np.exp(-time*beta_binding_time)
-    f_short = beta_short_time*np.exp(-time*beta_short_time)
+    
+    # Clip exponential arguments to prevent overflow
+    exp_arg_binding = np.clip(-time*beta_binding_time, -700, 700)
+    exp_arg_short = np.clip(-time*beta_short_time, -700, 700)
+    
+    f_binding = beta_binding_time*np.exp(exp_arg_binding)
+    f_short = beta_short_time*np.exp(exp_arg_short)
+    
     argument_binding = time/R - beta_binding_time*R
     argument_short = time/R - beta_short_time*R
     std_norm_distro = sta.norm(loc=0, scale=1)
     G_binding = std_norm_distro.cdf(argument_binding)
     G_short = std_norm_distro.cdf(argument_short)
-    f_binding_new = np.exp(0.5*(beta_binding_time*R)**2)*G_binding*f_binding
-    f_short_new = np.exp(0.5*(beta_short_time*R)**2)*G_short*f_short
+    
+    # Clip additional exponential arguments
+    exp_arg_binding_new = np.clip(0.5*(beta_binding_time*R)**2, -700, 700)
+    exp_arg_short_new = np.clip(0.5*(beta_short_time*R)**2, -700, 700)
+    
+    f_binding_new = np.exp(exp_arg_binding_new)*G_binding*f_binding
+    f_short_new = np.exp(exp_arg_short_new)*G_short*f_short
     f = A*f_binding_new + B*f_short_new
+    
+    # Replace any inf/nan values with very small positive numbers
+    f = np.where(np.isfinite(f) & (f > 0), f, 1e-30)
     return f
 
 

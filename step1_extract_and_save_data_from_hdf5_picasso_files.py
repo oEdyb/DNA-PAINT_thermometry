@@ -92,7 +92,7 @@ def split_hdf5(hdf5_file, folder, recursive_flag, rectangles_flag, lpx_filter,
 
 
         # ================ PREPARE OUTPUT DIRECTORY ================
-        save_folder = os.path.join(folder, 'split_data')
+        save_folder = os.path.join(folder, 'analysis', 'step1', 'data')
         if not os.path.exists(save_folder):
             os.makedirs(save_folder)
         
@@ -197,7 +197,7 @@ def split_hdf5(hdf5_file, folder, recursive_flag, rectangles_flag, lpx_filter,
     print(f'   Picks Found: {len(pick_numbers)}')
     print(f'   Localizations Before LP Filter: {len(frame)}')
     print(f'   Localizations After LP Filter: {len(frame[filter_index])}')
-    print(f'   All data saved in "split_data" directory.')
+    print(f'   All data saved in "analysis/step1/data" directory.')
     print('='*70)
     print('\nDone with STEP 1.')
     

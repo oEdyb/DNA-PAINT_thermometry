@@ -30,7 +30,7 @@ from auxiliary_functions import (log_likelihood_hyper, log_likelihood_hyper_with
                             hyperexp_func_with_error, hyperexp_func, \
                             monoexp_func, \
                             monoexp_func_with_error, log_likelihood_mono_with_error,
-                                 log_likelihood_mono_with_error_one_param, update_pkl)
+                                 log_likelihood_mono_with_error_one_param, update_pkl, manage_save_directory)
 
 # ================ CONFIGURATION SETTINGS ================
 # ignore divide by zero warning and scipy optimization warnings
@@ -52,6 +52,19 @@ def estimate_binding_unbinding_times(exp_time, rango, working_folder, \
     
     print('\nStarting STEP 4.')
     
+    # ================ CREATE STEP4 FOLDER STRUCTURE ================
+    # working_folder is .../analysis/step3/data, need to go back to main experiment folder
+    main_folder = os.path.dirname(os.path.dirname(os.path.dirname(working_folder)))  # Go back to main experiment folder
+    analysis_folder = os.path.join(main_folder, 'analysis')
+    step4_data_folder = manage_save_directory(analysis_folder, 'step4/data')
+    step4_figures_folder = manage_save_directory(analysis_folder, 'step4/figures')
+    
+    if verbose_flag:
+        print(f'Debug: working_folder = {working_folder}')
+        print(f'Debug: main_folder = {main_folder}')
+        print(f'Debug: step4_data_folder = {step4_data_folder}')
+        print(f'Debug: step4_figures_folder = {step4_figures_folder}')
+    
     # ================ LOCATE AND LOAD DATA FILES ================
     list_of_files = os.listdir(working_folder)
     
@@ -68,7 +81,7 @@ def estimate_binding_unbinding_times(exp_time, rango, working_folder, \
                                             exp_time, initial_params, \
                                             likelihood_err_param, \
                                             hyper_exponential_flag, \
-                                            opt_display_flag, 1, verbose_flag, plot_flag=False)
+                                            opt_display_flag, 1, verbose_flag, step4_figures_folder, 'tau_on', plot_flag=False)
     
     #print('\nSolution for tau_on')
     # print(solutions_on)
@@ -80,7 +93,7 @@ def estimate_binding_unbinding_times(exp_time, rango, working_folder, \
                                             exp_time, [230, 2, 1], \
                                             likelihood_err_param, \
                                             True, \
-                                            opt_display_flag, 1, verbose_flag, plot_flag=False)
+                                            opt_display_flag, 1, verbose_flag, step4_figures_folder, 'tau_off', plot_flag=False)
 
     # print('\nSolution for tau_off')
     # # print(solutions_off)
@@ -99,8 +112,7 @@ def estimate_binding_unbinding_times(exp_time, rango, working_folder, \
 
 
     # ================ SAVE PARAMETERS TO PICKLE FILE ================
-    aux_folder = os.path.dirname(t_on_full_filepath)
-    dict_path = os.path.join(aux_folder, "MLE_parameters.pkl")
+    dict_path = os.path.join(step4_data_folder, "MLE_parameters.pkl")
     with open(dict_path, 'wb') as f:
         pickle.dump(parameters, f)
 
@@ -151,7 +163,7 @@ def estimate_binding_unbinding_times(exp_time, rango, working_folder, \
 # ================ FUNCTION TO FIND BEST TAU USING MLE ================
 def find_best_tau_using_MLE(full_filepath, rango, exp_time, initial_params, \
                             likelihood_err_param, hyper_exponential_flag, \
-                            opt_display_flag, factor, verbose_flag, sample_data = None, plot_flag=False):
+                            opt_display_flag, factor, verbose_flag, figures_folder, plot_name, sample_data = None, plot_flag=False):
     # factor is to be used in case you're estimating tau_off which is significantly
     # larger than tau_on, typically
 
@@ -382,7 +394,7 @@ def find_best_tau_using_MLE(full_filepath, rango, exp_time, initial_params, \
 
     # ================ PLOT DATA AND MLE FIT ================
     # plot data and MLE output
-    if plot_flag:
+    if True:
         plt.figure(99)
         plt.bar(bin_center, counts_norm, width = bin_size, color = 'lightgrey', edgecolor = 'k', label='Data')
         plt.plot(bin_center, counts_norm_MLE, '-', linewidth = 0.1, color = '#638bf9', label='MLE')
@@ -394,9 +406,8 @@ def find_best_tau_using_MLE(full_filepath, rango, exp_time, initial_params, \
         ax.set_axisbelow(True)
         plt.title('bin size %.3f s' % bin_size)
         plt.legend()
-        figure_name = 'binding_time_hist_MLE'
-        aux_folder = os.path.dirname(full_filepath)
-        figure_path = os.path.join(aux_folder, '%s.png' % figure_name)
+        figure_name = f'binding_time_hist_MLE_{plot_name}'
+        figure_path = os.path.join(figures_folder, '%s.png' % figure_name)
         plt.tight_layout()
         plt.savefig(figure_path, dpi = 300, bbox_inches='tight')
 
@@ -428,9 +439,8 @@ def find_best_tau_using_MLE(full_filepath, rango, exp_time, initial_params, \
             plt.text(0.05, 0.95, tau_long_text, transform=ax.transAxes, fontsize=14,
                      verticalalignment='top')
 
-        figure_name = 'binding_time_hist_MLE'
-        aux_folder = os.path.dirname(full_filepath)
-        figure_path = os.path.join(aux_folder, '%s.png' % figure_name)
+        figure_name = f'binding_time_hist_MLE_paper_{plot_name}'
+        figure_path = os.path.join(figures_folder, '%s.png' % figure_name)
         plt.tight_layout()
         plt.savefig(figure_path, dpi = 300, bbox_inches='tight')
 

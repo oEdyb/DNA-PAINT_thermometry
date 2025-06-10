@@ -76,25 +76,26 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
     #print('Total time %.1f min' % total_time_min)
         
     # ================ CREATE FOLDER STRUCTURE FOR SAVING DATA ================
-    # global figures folder
-    figures_folder = manage_save_directory(working_folder, 'figures_global')
-    # figures per pick folder
-    per_pick_folder = os.path.join(working_folder, 'per_pick')
-    figures_per_pick_folder = manage_save_directory(per_pick_folder, 'figures')
-    traces_per_pick_folder = manage_save_directory(per_pick_folder, 'traces')
-    traces_per_site_folder = manage_save_directory(traces_per_pick_folder, 'traces per site')
-
+    # Create step2 folder structure
+    # working_folder is .../analysis/step1/data, need to go back to main experiment folder
+    main_folder = os.path.dirname(os.path.dirname(os.path.dirname(working_folder)))  # Go back to main experiment folder
+    analysis_folder = os.path.join(main_folder, 'analysis')
+    figures_folder = manage_save_directory(analysis_folder, 'step2/figures')
+    figures_per_pick_folder = manage_save_directory(figures_folder, 'per_pick')
+    data_folder = manage_save_directory(analysis_folder, 'step2/data')
+    traces_per_pick_folder = manage_save_directory(data_folder, 'traces')
+    traces_per_site_folder = manage_save_directory(traces_per_pick_folder, 'traces_per_site')
+    kinetics_folder = manage_save_directory(data_folder, 'kinetics_data')
+    gaussian_folder = manage_save_directory(kinetics_folder, 'gaussian_data')
 
     # ================ CLEAN UP EXISTING TRACE FILES ================
-    for f in os.listdir(traces_per_site_folder):
-        file_path = os.path.join(traces_per_site_folder, f)  # Combine directory path and file name
-        if os.path.isfile(file_path):  # Ensure it's a file (not a directory)
-            os.remove(file_path)  # Remove the file
-        else:
-            print(f"{file_path} is not a file, skipping.")
-    
-    kinetics_folder = manage_save_directory(working_folder, 'kinetics_data')
-    gaussian_folder = manage_save_directory(kinetics_folder, 'gaussian_data')
+    if os.path.exists(traces_per_site_folder):
+        for f in os.listdir(traces_per_site_folder):
+            file_path = os.path.join(traces_per_site_folder, f)  # Combine directory path and file name
+            if os.path.isfile(file_path):  # Ensure it's a file (not a directory)
+                os.remove(file_path)  # Remove the file
+            else:
+                print(f"{file_path} is not a file, skipping.")
 
     # ================ LIST AND FILTER INPUT FILES ================
     list_of_files = os.listdir(working_folder)
@@ -869,17 +870,17 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
     # number of locs
     data_to_save = np.asarray([pick_number, locs_of_picked]).T
     new_filename = 'number_of_locs_per_pick.dat'
-    new_filepath = os.path.join(figures_folder, new_filename)
+    new_filepath = os.path.join(data_folder, new_filename)
     np.savetxt(new_filepath, data_to_save, fmt='%i')
     
     # relative positions
     data_to_save = positions_concat_NP
     new_filename = 'relative_positions_NP_sites_in_nm.dat'
-    new_filepath = os.path.join(figures_folder, new_filename)
+    new_filepath = os.path.join(data_folder, new_filename)
     np.savetxt(new_filepath, data_to_save, fmt='%.1f')
     data_to_save = positions_concat_origami
     new_filename = 'relative_positions_binding_sites_in_nm.dat'
-    new_filepath = os.path.join(figures_folder, new_filename)
+    new_filepath = os.path.join(data_folder, new_filename)
     np.savetxt(new_filepath, data_to_save, fmt='%.1f')
 
     # ================ OUTPUT SUMMARY INFORMATION ================
@@ -893,7 +894,7 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
     }
 
     for key in summary_info.keys():
-        update_pkl(working_folder, key, summary_info[key])
+        update_pkl(main_folder, key, summary_info[key])
 
     # Elegant printing of the summary
     print('\n' + '='*23 + '📊 STEP 2 SUMMARY 📊' + '='*23)

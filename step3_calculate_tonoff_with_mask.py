@@ -38,18 +38,22 @@ def calculate_kinetics(exp_time, photons_threshold, background_level, photons, f
     print('\nStarting STEP 3.')
 
     # ================ SETUP DIRECTORY STRUCTURE AND FILEPATHS ================
+    # Create step3 folder structure  
+    analysis_folder = os.path.join(folder_main, 'analysis')
+    figures_folder = manage_save_directory(analysis_folder, 'step3/figures')
+    data_folder = manage_save_directory(analysis_folder, 'step3/data')
+    
     # filepath
-    folder = os.path.join(folder_main, 'kinetics_data')
-    figures_folder = os.path.join(folder_main, 'figures_global')
+    folder = os.path.join(folder_main, 'analysis', 'step2', 'data', 'kinetics_data')
     traces_file = os.path.join(folder, filename)
-    traces_per_site_file = os.path.join(folder_main, 'per_pick\\traces\\traces per site')
+    traces_per_site_file = os.path.join(folder_main, 'analysis', 'step2', 'data', 'traces', 'traces_per_site')
 
-    ton_per_site_path = manage_save_directory(folder, 'ton_per_site')
-    toff_per_site_path = manage_save_directory(folder, 'toff_per_site')
-    mean_photons_per_site_path = manage_save_directory(folder, 'mean_photons_per_site')
-    std_photons_per_site_path = manage_save_directory(folder, 'std_photons_per_site')
-    sum_photons_per_site_path = manage_save_directory(folder, 'sum_photons_per_site')
-    photons_per_site_path = manage_save_directory(folder, 'photons_per_site')
+    ton_per_site_path = manage_save_directory(data_folder, 'ton_per_site')
+    toff_per_site_path = manage_save_directory(data_folder, 'toff_per_site')
+    mean_photons_per_site_path = manage_save_directory(data_folder, 'mean_photons_per_site')
+    std_photons_per_site_path = manage_save_directory(data_folder, 'std_photons_per_site')
+    sum_photons_per_site_path = manage_save_directory(data_folder, 'sum_photons_per_site')
+    photons_per_site_path = manage_save_directory(data_folder, 'photons_per_site')
 
     # ================ CLEAN UP EXISTING FILES IN OUTPUT DIRECTORIES ================
     folders_to_remove_files_from = [ton_per_site_path, toff_per_site_path, mean_photons_per_site_path, std_photons_per_site_path,
@@ -342,15 +346,15 @@ def calculate_kinetics(exp_time, photons_threshold, background_level, photons, f
 
     # ================ SAVE FINAL RESULTS TO FILES ================
     # save data
-    t_on_filename = os.path.join(folder, 't_on.dat')
-    t_off_filename = os.path.join(folder, 't_off.dat')
-    t_start_filename = os.path.join(folder, 't_start.dat')
-    snr_filename = os.path.join(folder, 'snr.dat')
-    sbr_filename = os.path.join(folder, 'sbr.dat')
-    sum_photons_filename = os.path.join(folder, 'sum_photons.dat')
-    photons_filename = os.path.join(folder, 'photons.dat')
-    std_photons_filename = os.path.join(folder, 'std_photons.dat')
-    double_event_filename = os.path.join(folder, 'double_event_count.dat')
+    t_on_filename = os.path.join(data_folder, 't_on.dat')
+    t_off_filename = os.path.join(data_folder, 't_off.dat')
+    t_start_filename = os.path.join(data_folder, 't_start.dat')
+    snr_filename = os.path.join(data_folder, 'snr.dat')
+    sbr_filename = os.path.join(data_folder, 'sbr.dat')
+    sum_photons_filename = os.path.join(data_folder, 'sum_photons.dat')
+    photons_filename = os.path.join(data_folder, 'photons.dat')
+    std_photons_filename = os.path.join(data_folder, 'std_photons.dat')
+    double_event_filename = os.path.join(data_folder, 'double_event_count.dat')
     np.savetxt(t_on_filename, tons, fmt = '%.3f')
     np.savetxt(t_off_filename, toffs, fmt = '%.3f')
     np.savetxt(t_start_filename, tstarts, fmt = '%.3f')

@@ -110,7 +110,7 @@ def run_analysis(selected_file, working_folder, step, params):
     #####################################################################
     
     # folder and file management
-    step2_working_folder = os.path.join(working_folder, 'split_data')
+    step2_working_folder = os.path.join(working_folder, 'analysis', 'step1', 'data')
     if step[1] == 'True':
         # ================ RUN STEP 2 ================
         step2_results = step2.process_dat_files(number_of_frames, exp_time, step2_working_folder, \
@@ -124,36 +124,72 @@ def run_analysis(selected_file, working_folder, step, params):
     #####################################################################
         
     # folder and file management
-    step3_working_folder = os.path.join(step2_working_folder, 'kinetics_data')
+    step3_working_folder = os.path.join(working_folder, 'analysis', 'step2', 'data', 'kinetics_data')
+    step2_main_folder = os.path.join(working_folder, 'analysis', 'step2', 'data')
     if step[2] == 'True':
         # ================ RUN STEP 3 ================
-        list_of_files_step3 = os.listdir(step3_working_folder)
-        all_traces_filename = [f for f in list_of_files_step3 if re.search('TRACES_ALL',f)][0]
-        bkg_filename = [f for f in os.listdir(step2_working_folder) if re.search('bkg', f)][0]
-        photons_filename = [f for f in os.listdir(step2_working_folder) if re.search('photons', f)][0]
-        bkg = np.loadtxt(os.path.join(step2_working_folder, bkg_filename))
-        photons = np.loadtxt(os.path.join(step2_working_folder, photons_filename))
-        background_level = np.mean(bkg, axis=None)
-        step3_results = step3.calculate_kinetics(exp_time, photons_threshold, background_level, photons,\
-                                 step2_working_folder, \
-                                 all_traces_filename, mask_level, mask_singles, number_of_frames, verbose_flag,
-                                 photon_threshold_flag)
-        if step3_results:
-            results_dict.update({f'step3_{k}': v for k, v in step3_results.items()})
+        # Check if the required folders and files exist
+        if not os.path.exists(step3_working_folder):
+            print(f'\nERROR: Step 3 cannot run - kinetics data folder not found: {step3_working_folder}')
+            print('Make sure Step 2 completed successfully.')
+        elif not os.path.exists(step2_main_folder):
+            print(f'\nERROR: Step 3 cannot run - step2 data folder not found: {step2_main_folder}')
+            print('Make sure Step 2 completed successfully.')
+        else:
+            try:
+                list_of_files_step3 = os.listdir(step3_working_folder)
+                if verbose_flag:
+                    print(f'Debug: Found {len(list_of_files_step3)} files in kinetics folder: {list_of_files_step3}')
+                
+                all_traces_filename = [f for f in list_of_files_step3 if re.search('TRACES_ALL',f)][0]
+                bkg_filename = [f for f in list_of_files_step3 if re.search('BKG', f)][0]
+                photons_filename = [f for f in list_of_files_step3 if re.search('PHOTONS', f)][0]
+                
+                if verbose_flag:
+                    print(f'Debug: Using files - TRACES: {all_traces_filename}, BKG: {bkg_filename}, PHOTONS: {photons_filename}')
+                
+                bkg = np.loadtxt(os.path.join(step3_working_folder, bkg_filename))
+                photons = np.loadtxt(os.path.join(step3_working_folder, photons_filename))
+                background_level = np.mean(bkg, axis=None)
+                step3_results = step3.calculate_kinetics(exp_time, photons_threshold, background_level, photons,\
+                                         working_folder, \
+                                         all_traces_filename, mask_level, mask_singles, number_of_frames, verbose_flag,
+                                         photon_threshold_flag)
+                if step3_results:
+                    results_dict.update({f'step3_{k}': v for k, v in step3_results.items()})
+            except FileNotFoundError as e:
+                print(f'\nERROR: Step 3 cannot run - required file not found: {e}')
+                print('Make sure Step 2 completed successfully and generated all required files.')
+            except IndexError as e:
+                print(f'\nERROR: Step 3 cannot run - required files missing in kinetics folder')
+                print(f'Looking for TRACES_ALL, BKG, and PHOTONS files')
+                print(f'Files found in {step3_working_folder}: {list_of_files_step3 if "list_of_files_step3" in locals() else "Could not list files"}')
     else:
         print('\nSTEP 3 was not executed.')
     
     #####################################################################
         
     # folder and file management
-    step4_working_folder = step3_working_folder
+    step4_working_folder = os.path.join(working_folder, 'analysis', 'step3', 'data')
     if step[3] == 'True':
         # ================ RUN STEP 4 ================
-        step4_results = step4.estimate_binding_unbinding_times(exp_time, rango, step4_working_folder,
-                                        initial_params, likelihood_err_param,
-                                        opt_display_flag, hyper_exponential_flag, verbose_flag)
-        if step4_results:
-            results_dict.update({f'step4_{k}': v for k, v in step4_results.items()})
+        # Check if the required folder exists
+        if not os.path.exists(step4_working_folder):
+            print(f'\nERROR: Step 4 cannot run - step3 data folder not found: {step4_working_folder}')
+            print('Make sure Step 3 completed successfully.')
+        else:
+            try:
+                step4_results = step4.estimate_binding_unbinding_times(exp_time, rango, step4_working_folder,
+                                                initial_params, likelihood_err_param,
+                                                opt_display_flag, hyper_exponential_flag, verbose_flag)
+                if step4_results:
+                    results_dict.update({f'step4_{k}': v for k, v in step4_results.items()})
+            except FileNotFoundError as e:
+                print(f'\nERROR: Step 4 cannot run - required file not found: {e}')
+                print('Make sure Step 3 completed successfully and generated t_on.dat and t_off.dat files.')
+            except Exception as e:
+                print(f'\nERROR: Step 4 failed with error: {e}')
+                print('Check that Step 3 generated valid binding time data.')
     else:
         print('\nSTEP 4 was not executed.')
     
