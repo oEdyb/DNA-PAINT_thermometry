@@ -53,8 +53,14 @@ def estimate_binding_unbinding_times(exp_time, rango, working_folder, \
     print('\nStarting STEP 4.')
     
     # ================ CREATE STEP4 FOLDER STRUCTURE ================
-    # working_folder is .../analysis/step3/data, need to go back to main experiment folder
-    main_folder = os.path.dirname(os.path.dirname(os.path.dirname(working_folder)))  # Go back to main experiment folder
+    # Determine main folder based on input path structure
+    if 'kinetics_data' in working_folder:
+        # For position averaging method: working_folder is .../analysis/step2/position_averaging_method/data/kinetics_data
+        main_folder = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(working_folder)))))  # Go back 5 directories
+    else:
+        # For original method: working_folder is .../analysis/step3/data  
+        main_folder = os.path.dirname(os.path.dirname(os.path.dirname(working_folder)))  # Go back 3 directories
+    
     analysis_folder = os.path.join(main_folder, 'analysis')
     step4_data_folder = manage_save_directory(analysis_folder, 'step4/data')
     step4_figures_folder = manage_save_directory(analysis_folder, 'step4/figures')
@@ -120,7 +126,7 @@ def estimate_binding_unbinding_times(exp_time, rango, working_folder, \
 
     # ================ FINAL PROMINENT TAU_LONG OUTPUT ================
 
-    print('\n' + '='*23 + '🔥 TAU LONG 🔥' + '='*23)
+    print('\n' + '='*23 + ' TAU LONG ' + '='*23)
     print(f'   TAU_LONG = {solutions_on[0][0]:.3f} seconds')
     print(f'   Error: +{solutions_on[0][1]:.3f} / -{solutions_on[0][2]:.3f} seconds')
     print('='*60)

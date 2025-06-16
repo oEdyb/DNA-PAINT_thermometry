@@ -79,6 +79,9 @@ class Ui_Parameters(object):
         self.checkVerbose = QtWidgets.QCheckBox(parent=self.groupBox_5)
         self.checkVerbose.setObjectName("checkVerbose")
         self.verticalLayout_7.addWidget(self.checkVerbose)
+        self.checkPositionAveraging = QtWidgets.QCheckBox(parent=self.groupBox_5)
+        self.checkPositionAveraging.setObjectName("checkPositionAveraging")
+        self.verticalLayout_7.addWidget(self.checkPositionAveraging)
         self.horizontalLayout_7.addLayout(self.verticalLayout_7)
         self.verticalLayout = QtWidgets.QVBoxLayout()
         self.verticalLayout.setObjectName("verticalLayout")
@@ -403,7 +406,8 @@ class Ui_Parameters(object):
                 "mask_level": lambda: self.mask.setCurrentText(value),
                 "likelihood_error": lambda: self.likelihood_error.setValue(float(value)),
                 "checkOptimizationDisplay": lambda: self.checkOptimizationDisplay.setChecked(value),
-                "checkHyperExponential": lambda: self.checkHyperExponential.setChecked(value)
+                "checkHyperExponential": lambda: self.checkHyperExponential.setChecked(value),
+                "use_position_averaging": lambda: self.checkPositionAveraging.setChecked(value)
             }
             if parameter in convert_dict:
                 convert_dict[parameter]()
@@ -480,6 +484,8 @@ class Ui_Parameters(object):
             _translate("Parameters", "This step finds the kinetic binding time of an imager probe."))
         self.checkStep4.setText(_translate("Parameters", "Step 4"))
         self.checkVerbose.setText(_translate("Parameters", "Verbose"))
+        self.checkPositionAveraging.setToolTip(_translate("Parameters", "Use position averaging method that integrates kinetics analysis into Step 2 and skips Step 3."))
+        self.checkPositionAveraging.setText(_translate("Parameters", "Position Averaging"))
         self.saveButton.setText(_translate("Parameters", "Save Parameters"))
         self.runButton.setText(_translate("Parameters", "Run"))
         self.groupBox_2.setTitle(_translate("Parameters", "Step 2"))
@@ -559,6 +565,7 @@ class Ui_Parameters(object):
             "step3": self.checkStep3.isChecked(),
             "step4": self.checkStep4.isChecked(),
             "verbose": self.checkVerbose.isChecked(),
+            "use_position_averaging": self.checkPositionAveraging.isChecked(),
             
             # Step 1 params
             "recursive": self.checkRecursive.isChecked(),

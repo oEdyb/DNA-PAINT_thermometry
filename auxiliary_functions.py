@@ -657,3 +657,170 @@ def update_pkl(file_path, key, value):
 
 
 
+# ================ BINDING TIME CALCULATION FUNCTIONS ================
+def calculate_tau_on_times_average(trace, threshold, bkg, exposure_time, mask_level, mask_singles, verbose_flag, index, x_positions=None, y_positions=None, frame_numbers=None):
+    """
+    Simplified binding event analysis with position averaging.
+    
+    Args:
+        trace: Photon trace array
+        threshold: Photon threshold for ON/OFF detection
+        bkg: Background level
+        exposure_time: Frame exposure time
+        mask_level: Number of consecutive dips to mask (0 = no masking)
+        mask_singles: Whether to mask single blips
+        verbose_flag: Print debug info
+        index: Pick index for debugging
+        x_positions, y_positions, frame_numbers: Optional position data for averaging
+    
+    Returns:
+        Tuple of results including on-times, off-times, positions, etc.
+    """
+    
+    # ================ STEP 1: CREATE BINARY TRACE ================
+    binary_trace = (trace >= threshold).astype(int)
+    photons_trace = np.where(trace >= threshold, trace, 0)
+    
+    if len(np.where(binary_trace > 0)[0]) == 0:
+        return [False] * 14  # Return False array if no events found
+    
+    # ================ STEP 2: APPLY SIMPLE MASKING ================
+    if mask_level > 0:
+        # Simple dip masking: fill gaps of mask_level frames or less between ON segments
+        binary_masked = binary_trace.copy()
+        changes = np.diff(np.concatenate(([0], binary_trace, [0])))
+        off_starts = np.where(changes == -1)[0]
+        off_ends = np.where(changes == 1)[0]
+        
+        # Fill short gaps
+        for start, end in zip(off_starts, off_ends):
+            if end - start <= mask_level:
+                binary_masked[start:end] = 1
+                # Interpolate photon values for masked frames
+                if start > 0 and end < len(photons_trace):
+                    gap_length = end - start
+                    start_val = photons_trace[start - 1]
+                    end_val = photons_trace[end] if photons_trace[end] > 0 else start_val
+                    for i in range(gap_length):
+                        photons_trace[start + i] = start_val + (end_val - start_val) * (i + 1) / (gap_length + 1)
+        
+        binary_trace = binary_masked
+    
+    if mask_singles:
+        # Remove single-frame blips
+        for i in range(1, len(binary_trace) - 1):
+            if binary_trace[i] == 1 and binary_trace[i-1] == 0 and binary_trace[i+1] == 0:
+                binary_trace[i] = 0
+                photons_trace[i] = 0
+    
+    # ================ STEP 3: FIND ON/OFF SEGMENTS ================
+    changes = np.diff(np.concatenate(([0], binary_trace, [0])))
+    on_starts = np.where(changes == 1)[0]
+    on_ends = np.where(changes == -1)[0]
+    
+    if len(on_starts) == 0:
+        return [False] * 14
+    
+    # ================ STEP 4: CALCULATE SEGMENT PROPERTIES ================
+    t_on = []
+    t_off = []
+    sum_photons = []
+    avg_photons = []
+    std_photons = []
+    start_times = []
+    average_x_positions = []
+    average_y_positions = []
+    
+    # Process each ON segment
+    for i, (start, end) in enumerate(zip(on_starts, on_ends)):
+        segment = photons_trace[start:end]
+        segment_frames = np.arange(start, end)
+        
+        # ================ HANDLE PARTIAL FRAMES ================
+        # Calculate partial frame contributions at segment boundaries
+        if len(segment) > 2:
+            # Use middle frames for statistics, but include partial contributions for timing
+            middle_segment = segment[1:-1]
+            first_partial = min(segment[0] / np.mean(middle_segment) if len(middle_segment) > 0 else 1, 1)
+            last_partial = min(segment[-1] / np.mean(middle_segment) if len(middle_segment) > 0 else 1, 1)
+            
+            on_time = len(middle_segment) + first_partial + last_partial
+            avg_photon = np.mean(middle_segment) if len(middle_segment) > 0 else np.mean(segment)
+            std_photon = np.std(middle_segment, ddof=1) if len(middle_segment) > 1 else 0
+        else:
+            on_time = len(segment)
+            avg_photon = np.mean(segment)
+            std_photon = np.std(segment, ddof=1) if len(segment) > 1 else 0
+        
+        # Store results
+        t_on.append(on_time)
+        sum_photons.append(np.sum(segment))
+        avg_photons.append(avg_photon)
+        std_photons.append(std_photon)
+        start_times.append(start)
+        
+        # ================ CALCULATE AVERAGE POSITIONS ================
+        if x_positions is not None and y_positions is not None and frame_numbers is not None:
+            # Find localizations in this time segment
+            event_mask = np.isin(frame_numbers, segment_frames)
+            if np.any(event_mask):
+                avg_x = np.mean(x_positions[event_mask])
+                avg_y = np.mean(y_positions[event_mask])
+            else:
+                avg_x = avg_y = np.nan
+        else:
+            avg_x = avg_y = np.nan
+        
+        average_x_positions.append(avg_x)
+        average_y_positions.append(avg_y)
+        
+        # Calculate OFF time to next segment (if not last segment)
+        if i < len(on_starts) - 1:
+            off_time = on_starts[i + 1] - end
+            t_off.append(off_time)
+    
+    # ================ STEP 5: CALCULATE DERIVED METRICS ================
+    # Convert to numpy arrays
+    t_on = np.array(t_on)
+    t_off = np.array(t_off)
+    sum_photons = np.array(sum_photons)
+    avg_photons = np.array(avg_photons)
+    std_photons = np.array(std_photons)
+    start_times = np.array(start_times)
+    average_x_positions = np.array(average_x_positions)
+    average_y_positions = np.array(average_y_positions)
+    
+    # Calculate signal metrics
+    SNR = np.divide(avg_photons, std_photons, out=np.zeros_like(avg_photons), where=std_photons!=0)
+    SBR = avg_photons / bkg if bkg > 0 else np.zeros_like(avg_photons)
+    
+    # Create photon intensity array (all photons from ON segments)
+    photon_intensity = photons_trace[binary_trace > 0]
+    
+    # Simple double event detection (placeholder - count segments longer than 7 frames)
+    double_events_counts = np.array([1 if duration > 7 else 0 for duration in t_on])
+    
+    if verbose_flag:
+        print(f'Found {len(t_on)} binding events')
+        if len(t_on) > 0:
+            print(f'Average ON time: {np.mean(t_on) * exposure_time:.2f} s')
+            print(f'Average photons per event: {np.mean(avg_photons):.1f}')
+    
+    # ================ STEP 6: RETURN RESULTS ================
+    # Return results in same format as original function
+    return (
+        t_on * exposure_time,           # 0: on times in seconds
+        t_off * exposure_time,          # 1: off times in seconds  
+        binary_trace,                   # 2: binary trace
+        start_times * exposure_time,    # 3: start times in seconds
+        SNR,                           # 4: signal to noise ratio
+        SBR,                           # 5: signal to background ratio
+        sum_photons,                   # 6: sum photons per event
+        avg_photons,                   # 7: average photons per event
+        photon_intensity,              # 8: all photon intensities from ON segments
+        std_photons,                   # 9: standard deviation of photons
+        start_times * exposure_time,   # 10: start times for avg photons (same as start_times)
+        double_events_counts,          # 11: double events detection
+        average_x_positions,           # 12: average x positions per event
+        average_y_positions            # 13: average y positions per event
+    )

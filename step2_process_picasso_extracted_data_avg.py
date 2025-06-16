@@ -49,7 +49,8 @@ import tkinter as tk
 import tkinter.filedialog as fd
 import re
 from auxiliary_functions import detect_peaks, distance, fit_linear, \
-    perpendicular_distance, manage_save_directory, plot_vs_time_with_hist, update_pkl
+    perpendicular_distance, manage_save_directory, plot_vs_time_with_hist, update_pkl, \
+    calculate_tau_on_times_average
 from sklearn.mixture import GaussianMixture
 import time
 from auxiliary_functions_gaussian import plot_gaussian_2d
@@ -82,7 +83,7 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
     analysis_folder = os.path.join(main_folder, 'analysis')
     
     # Create method-specific subfolders to prevent file mixing
-    method_subfolder = 'original_method'  # This is the original method
+    method_subfolder = 'position_averaging_method'  # This is the position averaging method
     step2_base_folder = manage_save_directory(analysis_folder, 'step2')
     step2_method_folder = manage_save_directory(step2_base_folder, method_subfolder)
     
@@ -183,8 +184,21 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
     gmm_stds = []
     gmm_stds_x = np.array([])
     gmm_stds_y = np.array([])
-    all_traces = np.zeros((1, number_of_frames))  # Initialize as 2D array for vstack compatibility
+    all_traces = np.zeros(number_of_frames)
     all_traces_per_site = {}
+    
+    # ================ INITIALIZE KINETICS ARRAYS ================
+    # Arrays for collecting kinetics data from all picks
+    tons_all = np.array([])
+    toffs_all = np.array([])
+    tstarts_all = np.array([])
+    SNR_all = np.array([])
+    SBR_all = np.array([])
+    sum_photons_all = np.array([])
+    avg_photons_all = np.array([])
+    photon_intensity_all = np.array([])
+    std_photons_all = np.array([])
+    double_events_all = np.array([])
     
     # ================ HISTOGRAM CONFIGURATION ================
     # set number of bins for FINE histograming 
@@ -210,8 +224,63 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
         frame_of_picked = frame[index_picked]
         photons_of_picked = photons[index_picked]
         bkg_of_picked = bkg[index_picked]
-        x_position_of_picked = x[index_picked]
-        y_position_of_picked = y[index_picked]
+        x_position_of_picked_raw = x[index_picked]
+        y_position_of_picked_raw = y[index_picked]
+        
+        # ================ CALCULATE AVERAGED POSITIONS FROM BINDING EVENTS ================
+        # Create a trace for this pick to identify binding events
+        pick_trace = np.zeros(number_of_frames)
+        np.add.at(pick_trace, frame_of_picked.astype(int), photons_of_picked)
+        
+        # Use calculate_tau_on_times_average to get averaged positions for binding events
+        # Set parameters for binding event detection
+        photons_threshold = np.mean(photons_of_picked) * 0.1  # Simple threshold
+        background_level = np.mean(bkg_of_picked)
+        mask_level = 1  # Simple masking
+        mask_singles = False
+        
+        # Get averaged positions for binding events
+        tau_results = calculate_tau_on_times_average(
+            pick_trace, photons_threshold, background_level, exp_time,
+            mask_level, mask_singles, False, i,  # verbose_flag=False
+            x_position_of_picked_raw, y_position_of_picked_raw, frame_of_picked
+        )
+        
+        # Extract averaged positions from results
+        if tau_results[0] is not False and len(tau_results) >= 14:
+            avg_x_positions = tau_results[12]  # average_x_positions
+            avg_y_positions = tau_results[13]  # average_y_positions
+            
+            # Filter out NaN values
+            valid_mask = ~(np.isnan(avg_x_positions) | np.isnan(avg_y_positions))
+            if np.any(valid_mask):
+                x_position_of_picked = avg_x_positions[valid_mask]
+                y_position_of_picked = avg_y_positions[valid_mask]
+                
+                # Create corresponding frame and photon data for averaged positions
+                # Use the start times from the binding events
+                binding_start_times = tau_results[3]  # start_time
+                valid_start_times = binding_start_times[valid_mask]
+                frame_of_picked = (valid_start_times / exp_time).astype(int)
+                
+                # Use sum photons for each event instead of individual photons
+                sum_photons_events = tau_results[6]  # sum_photons
+                photons_of_picked = sum_photons_events[valid_mask]
+                
+                if verbose_flag:
+                    print(f'Using {len(x_position_of_picked)} averaged positions from {len(x_position_of_picked_raw)} raw localizations')
+            else:
+                # Fall back to raw data if no valid averaged positions
+                x_position_of_picked = x_position_of_picked_raw
+                y_position_of_picked = y_position_of_picked_raw
+                if verbose_flag:
+                    print('No valid averaged positions found, using raw localizations')
+        else:
+            # Fall back to raw data if averaging failed
+            x_position_of_picked = x_position_of_picked_raw
+            y_position_of_picked = y_position_of_picked_raw
+            if verbose_flag:
+                print('Position averaging failed, using raw localizations')
         
         # Set boundaries for histograms
         x_min = min(x_position_of_picked)
@@ -463,6 +532,52 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
                 new_filename = f'TRACE_pick_{i}_site_{int(key)}_dist_{dist_value}.dat'
                 new_filepath = os.path.join(traces_per_site_folder, new_filename)
                 np.savetxt(new_filepath, site_trace, fmt='%05d')
+                
+                # ================ CALCULATE PER-SITE KINETICS ================
+                # Calculate kinetics for this individual site
+                site_tau_results = calculate_tau_on_times_average(
+                    site_trace, photons_threshold, background_level, exp_time,
+                    mask_level, mask_singles, False, site_index
+                )
+                
+                if site_tau_results[0] is not False and len(site_tau_results) >= 14:
+                    # Extract and save per-site kinetics data
+                    site_tons = site_tau_results[0]
+                    site_toffs = site_tau_results[1] 
+                    site_sum_photons = site_tau_results[6]
+                    site_avg_photons = site_tau_results[7]
+                    site_photon_intensity = site_tau_results[8]
+                    site_std_photons = site_tau_results[9]
+                    
+                    # Create per-site kinetics folders
+                    ton_per_site_folder = manage_save_directory(data_folder, 'ton_per_site')
+                    toff_per_site_folder = manage_save_directory(data_folder, 'toff_per_site')
+                    mean_photons_per_site_folder = manage_save_directory(data_folder, 'mean_photons_per_site')
+                    std_photons_per_site_folder = manage_save_directory(data_folder, 'std_photons_per_site')
+                    sum_photons_per_site_folder = manage_save_directory(data_folder, 'sum_photons_per_site')
+                    photons_per_site_folder = manage_save_directory(data_folder, 'photons_per_site')
+                    
+                    # Save per-site kinetics files
+                    base_name = f'pick_{i}_site_{int(key)}_dist_{int(dist_value)}'
+                    
+                    if len(site_tons) > 0:
+                        np.savetxt(os.path.join(ton_per_site_folder, f'ton_{base_name}.dat'), 
+                                  site_tons, fmt='%.3f')
+                    if len(site_toffs) > 0:
+                        np.savetxt(os.path.join(toff_per_site_folder, f'toff_{base_name}.dat'), 
+                                  site_toffs, fmt='%.3f')
+                    if len(site_avg_photons) > 0:
+                        np.savetxt(os.path.join(mean_photons_per_site_folder, f'meanphotons_{base_name}.dat'), 
+                                  site_avg_photons, fmt='%.3f')
+                    if len(site_std_photons) > 0:
+                        np.savetxt(os.path.join(std_photons_per_site_folder, f'stdphotons_{base_name}.dat'), 
+                                  site_std_photons, fmt='%.3f')
+                    if len(site_sum_photons) > 0:
+                        np.savetxt(os.path.join(sum_photons_per_site_folder, f'sumphotons_{base_name}.dat'), 
+                                  site_sum_photons, fmt='%.3f')
+                    if len(site_photon_intensity) > 0:
+                        np.savetxt(os.path.join(photons_per_site_folder, f'photons_{base_name}.dat'), 
+                                  site_photon_intensity, fmt='%.3f')
         
         # ================ COMPILE DATA FOR HISTOGRAMS ================
         photons_concat = np.concatenate([photons_concat, photons_of_picked])
@@ -734,6 +849,33 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
                     plt.savefig(figure_path, dpi=100, bbox_inches='tight')
                     plt.close()
 
+        # ================ COLLECT KINETICS DATA ================
+        # Collect kinetics data from tau_results for overall analysis
+        if tau_results[0] is not False and len(tau_results) >= 14:
+            # Extract kinetics data from tau_results
+            tons_pick = tau_results[0]    # on times
+            toffs_pick = tau_results[1]   # off times
+            tstarts_pick = tau_results[3] # start times
+            SNR_pick = tau_results[4]     # signal to noise ratio
+            SBR_pick = tau_results[5]     # signal to background ratio
+            sum_photons_pick = tau_results[6]      # sum photons per event
+            avg_photons_pick = tau_results[7]      # average photons per event
+            photon_intensity_pick = tau_results[8] # photon intensities
+            std_photons_pick = tau_results[9]      # std photons per event
+            double_events_pick = tau_results[11]   # double events count
+            
+            # Append to global arrays (will be initialized before the loop)
+            if len(tons_pick) > 0:  # Only append if there are valid events
+                tons_all = np.append(tons_all, tons_pick)
+                toffs_all = np.append(toffs_all, toffs_pick)
+                tstarts_all = np.append(tstarts_all, tstarts_pick)
+                SNR_all = np.append(SNR_all, SNR_pick)
+                SBR_all = np.append(SBR_all, SBR_pick)
+                sum_photons_all = np.append(sum_photons_all, sum_photons_pick)
+                avg_photons_all = np.append(avg_photons_all, avg_photons_pick)
+                photon_intensity_all = np.append(photon_intensity_all, photon_intensity_pick)
+                std_photons_all = np.append(std_photons_all, std_photons_pick)
+                double_events_all = np.append(double_events_all, double_events_pick)
 
     # ================ GLOBAL ANALYSIS AND VISUALIZATION ================
     # ================ PLOT NP RELATIVE POSITIONS ================
@@ -857,6 +999,95 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
     except:
         pass
 
+    # ================ KINETICS ANALYSIS AND PLOTTING ================
+    # Process and plot kinetics data collected from all picks
+    if len(tons_all) > 0:
+        # Clean up kinetics data
+        tons_all = np.trim_zeros(tons_all)
+        toffs_all = np.trim_zeros(toffs_all)
+        
+        # Filter out invalid SNR/SBR values
+        filter_indices = np.logical_and.reduce((
+            ~np.isnan(SNR_all), ~np.isnan(SBR_all),
+            ~np.isinf(SNR_all), ~np.isinf(SBR_all)
+        ))
+        SNR_filtered = SNR_all[filter_indices]
+        SBR_filtered = SBR_all[filter_indices]
+        tstarts_filtered = tstarts_all[filter_indices]
+        
+        # ================ SAVE KINETICS DATA ================
+        # Save kinetics data files for Step 4 compatibility
+        np.savetxt(os.path.join(kinetics_folder, 't_on.dat'), tons_all, fmt='%.3f')
+        np.savetxt(os.path.join(kinetics_folder, 't_off.dat'), toffs_all, fmt='%.3f')
+        np.savetxt(os.path.join(kinetics_folder, 't_start.dat'), tstarts_all, fmt='%.3f')
+        np.savetxt(os.path.join(kinetics_folder, 'snr.dat'), SNR_filtered, fmt='%.3f')
+        np.savetxt(os.path.join(kinetics_folder, 'sbr.dat'), SBR_filtered, fmt='%.3f')
+        np.savetxt(os.path.join(kinetics_folder, 'sum_photons.dat'), sum_photons_all, fmt='%.3f')
+        np.savetxt(os.path.join(kinetics_folder, 'avg_photons.dat'), avg_photons_all, fmt='%.3f')
+        np.savetxt(os.path.join(kinetics_folder, 'std_photons.dat'), std_photons_all, fmt='%.3f')
+        np.savetxt(os.path.join(kinetics_folder, 'double_events.dat'), double_events_all, fmt='%.3f')
+        
+        # ================ KINETICS PLOTS ================
+        # Plot binding time vs start time
+        plt.figure()
+        ax, slope, intercept = plot_vs_time_with_hist(tons_all, tstarts_all/60, order=1, fit_line=True)
+        ax.set_xlabel('Time [min]')
+        ax.set_ylabel('Binding time [s]')
+        ax.set_title(f'Binding time vs. start time\nSlope: {slope:.3f}, Intercept: {intercept:.3f}')
+        figure_path = os.path.join(figures_folder, 'binding_time_vs_time.png')
+        plt.savefig(figure_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        # Plot total photons vs time
+        plt.figure()
+        ax = plot_vs_time_with_hist(sum_photons_all, tstarts_all/60)
+        ax.set_xlabel('Time [min]')
+        ax.set_ylabel('Total photons [photons]')
+        ax.set_title('Total photons per binding event vs time')
+        figure_path = os.path.join(figures_folder, 'total_photons_vs_time.png')
+        plt.savefig(figure_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        # Photon count histogram
+        plt.figure()
+        bin_edges = np.histogram_bin_edges(sum_photons_all, 'fd')
+        plt.hist(sum_photons_all, bins=bin_edges)
+        plt.xlabel('Photon count [photons]')
+        plt.ylabel('Frequency')
+        plt.title('Histogram of photon count per binding event')
+        plt.yscale('log')
+        figure_path = os.path.join(figures_folder, 'photon_histogram.png')
+        plt.savefig(figure_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        # SNR and SBR scatter plot
+        if len(SNR_filtered) > 0:
+            plt.figure()
+            plt.scatter(tstarts_filtered/60, SNR_filtered, s=0.85, alpha=0.6, label='SNR')
+            plt.scatter(tstarts_filtered/60, SBR_filtered, s=0.85, alpha=0.6, label='SBR')
+            plt.yscale('log')
+            plt.xlabel('Time [min]')
+            plt.ylabel('SNR / SBR')
+            plt.title('Signal-to-Noise and Signal-to-Background Ratios vs Time')
+            plt.legend()
+            figure_path = os.path.join(figures_folder, 'SNR_SBR_scatter_plot.png')
+            plt.savefig(figure_path, dpi=300, bbox_inches='tight')
+            plt.close()
+        
+        # Update summary with kinetics data
+        kinetics_summary = {
+            'Total Binding Events': len(tons_all),
+            'Mean Binding Time (s)': np.mean(tons_all),
+            'Mean Unbinding Time (s)': np.mean(toffs_all) if len(toffs_all) > 0 else 0,
+            'Mean SNR': np.mean(SNR_filtered) if len(SNR_filtered) > 0 else 0,
+            'Mean SBR': np.mean(SBR_filtered) if len(SBR_filtered) > 0 else 0,
+            'Binding Time Slope': slope if 'slope' in locals() else 0,
+            'Binding Time Intercept': intercept if 'intercept' in locals() else 0
+        }
+        
+        for key, value in kinetics_summary.items():
+            update_pkl(main_folder, key, value)
+
     # ================ SAVE BACKGROUND DATA ================
     new_filename = 'BKG.dat'
     new_filepath = os.path.join(kinetics_folder, new_filename)
@@ -864,14 +1095,10 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
     
     # ================ SAVE ALL TRACES ================
     # delete first fake and empty trace (needed to make the proper array)
-    if all_traces.shape[0] > 1:  # Only delete if there are actual traces beyond the dummy row
-        all_traces = np.delete(all_traces, 0, axis = 0)
-        all_traces = all_traces.T
-    else:
-        # If no binding sites were found, create an empty array with correct shape
-        all_traces = np.zeros((number_of_frames, 0))
-    
+    all_traces = np.delete(all_traces, 0, axis = 0)
+    all_traces = all_traces.T
     # save ALL traces in one file
+
     new_filename = 'TRACES_ALL.dat'
     new_filepath = os.path.join(kinetics_folder, new_filename)
     np.savetxt(new_filepath, all_traces, fmt='%05d')
@@ -913,6 +1140,11 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
     print(f'   2D Histogram Bin Size (nm): {hist_2D_bin_size:.2f}')
     print(f'   Mean Amount of Photons: {photons_mean:.1f}')
     print(f'   Mean Background Signal: {np.mean(bkg_concat, axis=None):.1f}')
+    if len(tons_all) > 0:
+        print(f'   Total Binding Events: {len(tons_all)}')
+        print(f'   Mean Binding Time (s): {np.mean(tons_all):.2f}')
+        print(f'   Mean SNR: {np.mean(SNR_filtered) if len(SNR_filtered) > 0 else 0:.1f}')
+        print(f'   Mean SBR: {np.mean(SBR_filtered) if len(SBR_filtered) > 0 else 0:.1f}')
     print(f'   Data analysis and plotting completed.')
     print('='*70)
     print('\nDone with STEP 2.')
@@ -928,6 +1160,20 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
         'mean_locs_per_pick': np.mean(locs_of_picked),
         'std_locs_per_pick': np.std(locs_of_picked)
     }
+    
+    # Add kinetics data if available
+    if len(tons_all) > 0:
+        results.update({
+            'total_binding_events': len(tons_all),
+            'mean_binding_time_seconds': np.mean(tons_all),
+            'std_binding_time_seconds': np.std(tons_all),
+            'mean_unbinding_time_seconds': np.mean(toffs_all) if len(toffs_all) > 0 else 0,
+            'std_unbinding_time_seconds': np.std(toffs_all) if len(toffs_all) > 0 else 0,
+            'mean_snr': np.mean(SNR_filtered) if len(SNR_filtered) > 0 else 0,
+            'mean_sbr': np.mean(SBR_filtered) if len(SBR_filtered) > 0 else 0,
+            'binding_time_slope': slope if 'slope' in locals() else 0,
+            'binding_time_intercept': intercept if 'intercept' in locals() else 0
+        })
     
     # Add relative positions statistics if available
     if len(positions_concat_origami) > 0:

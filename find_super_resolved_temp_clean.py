@@ -20,7 +20,7 @@ import numpy as np
 
 # from auxiliary_functions import save_parameters
 import step1_extract_and_save_data_from_hdf5_picasso_files as step1
-import step2_process_picasso_extracted_data as step2
+# Step 2 import will be conditional based on averaging flag
 import step3_calculate_tonoff_with_mask as step3
 import step4_estimate_binding_time_using_MLE as step4
 import time
@@ -46,16 +46,16 @@ def save_consolidated_results(results_dict, metadata_dict, working_folder):
             existing_df = pd.read_csv(csv_path)
             combined_df = pd.concat([existing_df, new_results_df], ignore_index=True)
             combined_df.to_csv(csv_path, index=False)
-            print(f'📈 Results appended to existing CSV (now {len(combined_df)} rows)')
+            print(f'Results appended to existing CSV (now {len(combined_df)} rows)')
         else:
             # Create new CSV
             new_results_df.to_csv(csv_path, index=False)
-            print(f'📊 New results CSV created with 1 row')
+            print(f'New results CSV created with 1 row')
     except PermissionError:
-        print(f'\n⚠️  ERROR: Cannot write to {csv_path}')
-        print('   💡 SOLUTION: Close the CSV file if it\'s open in Excel/other programs')
-        print('   📁 Results will be printed to console instead:')
-        print(f'   🔍 {new_results_df.to_string(index=False)}')
+        print(f'\nERROR: Cannot write to {csv_path}')
+        print('   SOLUTION: Close the CSV file if it\'s open in Excel/other programs')
+        print('   Results will be printed to console instead:')
+        print(f'   {new_results_df.to_string(index=False)}')
     
     # ================ SAVE METADATA TO CSV (APPEND IF EXISTS) ================
     metadata_dict['analysis_timestamp'] = datetime.now().isoformat()
@@ -78,14 +78,14 @@ def save_consolidated_results(results_dict, metadata_dict, working_folder):
         existing_metadata_df = pd.read_csv(metadata_csv_path)
         combined_metadata_df = pd.concat([existing_metadata_df, new_metadata_df], ignore_index=True)
         combined_metadata_df.to_csv(metadata_csv_path, index=False)
-        print(f'📋 Metadata appended to existing CSV (now {len(combined_metadata_df)} rows)')
+        print(f'Metadata appended to existing CSV (now {len(combined_metadata_df)} rows)')
     else:
         # Create new metadata CSV
         new_metadata_df.to_csv(metadata_csv_path, index=False)
-        print(f'📋 New metadata CSV created with 1 row')
+        print(f'New metadata CSV created with 1 row')
     
-    print(f'\n📊 Results saved to: {csv_path}')
-    print(f'📋 Metadata saved to: {metadata_csv_path}')
+    print(f'\nResults saved to: {csv_path}')
+    print(f'Metadata saved to: {metadata_csv_path}')
 
 def run_analysis(selected_file, working_folder, step, params):
 
@@ -112,7 +112,19 @@ def run_analysis(selected_file, working_folder, step, params):
     lpx_filter = params.get('lpx_filter', 0)
     lpy_filter = params.get('lpy_filter', 0)
     mask_singles = params.get('mask_singles', 0)
+    use_position_averaging = params.get('use_position_averaging', False)  # New flag for position averaging
     photon_threshold_flag = False
+
+    # ================ CONDITIONAL STEP2 IMPORT ================
+    # Import the appropriate Step 2 module based on averaging flag
+    if use_position_averaging:
+        import step2_process_picasso_extracted_data_avg as step2
+        method_name = "Position Averaging Method"
+        workflow_steps = "Step 1 -> Step 2 (with kinetics) -> Step 4 (MLE)"
+    else:
+        import step2_process_picasso_extracted_data as step2
+        method_name = "Original Method"
+        workflow_steps = "Step 1 -> Step 2 -> Step 3 -> Step 4"
 
     # ================ INITIALIZE RESULTS AND METADATA DICTIONARIES ================
     results_dict = {
@@ -123,11 +135,15 @@ def run_analysis(selected_file, working_folder, step, params):
     metadata_dict = {
         'analysis_parameters': params,
         'file_path': selected_file,
-        'steps_executed': [str(i+1) for i, enabled in enumerate(step) if enabled == 'True']
+        'steps_executed': [str(i+1) for i, enabled in enumerate(step) if enabled == 'True'],
+        'method_used': method_name,
+        'position_averaging_enabled': use_position_averaging
     }
 
     # ================ ANALYSIS PARAMETERS SUMMARY ================
-    print('\n' + '='*18 + '⚙️ ANALYSIS PARAMETERS ⚙️' + '='*18)
+    print('\n' + '='*18 + ' ANALYSIS PARAMETERS ' + '='*18)
+    print(f'   Method: {method_name}')
+    print(f'   Workflow: {workflow_steps}')
     print(f'   Exposure Time: {exp_time}s | Frames: {number_of_frames} | Docking Sites: {docking_sites}')
     print(f'   Photon Threshold: {photons_threshold} | Background: {background_level} | Mask Level: {mask_level}')
     print(f'   Pixel Size: {pixel_size*1000:.0f}nm | Pick Size: {pick_size}px | LP Filters: {lpx_filter}/{lpy_filter}')
@@ -165,61 +181,58 @@ def run_analysis(selected_file, working_folder, step, params):
     #####################################################################
         
     # folder and file management
-    step3_working_folder = os.path.join(working_folder, 'analysis', 'step2', 'data', 'kinetics_data')
-    step2_main_folder = os.path.join(working_folder, 'analysis', 'step2', 'data')
-    if step[2] == 'True':
-        # ================ RUN STEP 3 ================
-        # Check if the required folders and files exist
-        if not os.path.exists(step3_working_folder):
-            print(f'\nERROR: Step 3 cannot run - kinetics data folder not found: {step3_working_folder}')
-            print('Make sure Step 2 completed successfully.')
-        elif not os.path.exists(step2_main_folder):
-            print(f'\nERROR: Step 3 cannot run - step2 data folder not found: {step2_main_folder}')
-            print('Make sure Step 2 completed successfully.')
-        else:
-            try:
-                list_of_files_step3 = os.listdir(step3_working_folder)
-                if verbose_flag:
-                    print(f'Debug: Found {len(list_of_files_step3)} files in kinetics folder: {list_of_files_step3}')
-                
-                all_traces_filename = [f for f in list_of_files_step3 if re.search('TRACES_ALL',f)][0]
-                bkg_filename = [f for f in list_of_files_step3 if re.search('BKG', f)][0]
-                photons_filename = [f for f in list_of_files_step3 if re.search('PHOTONS', f)][0]
-                
-                if verbose_flag:
-                    print(f'Debug: Using files - TRACES: {all_traces_filename}, BKG: {bkg_filename}, PHOTONS: {photons_filename}')
-                
-                bkg = np.loadtxt(os.path.join(step3_working_folder, bkg_filename))
-                photons = np.loadtxt(os.path.join(step3_working_folder, photons_filename))
-                background_level = np.mean(bkg, axis=None)
-                step3_results = step3.calculate_kinetics(exp_time, photons_threshold, background_level, photons,\
-                                         working_folder, \
-                                         all_traces_filename, mask_level, mask_singles, number_of_frames, verbose_flag,
-                                         photon_threshold_flag)
-                if step3_results:
-                    results_dict.update({f'step3_{k}': v for k, v in step3_results.items()})
-            except FileNotFoundError as e:
-                print(f'\nERROR: Step 3 cannot run - required file not found: {e}')
-                print('Make sure Step 2 completed successfully and generated all required files.')
-            except IndexError as e:
-                print(f'\nERROR: Step 3 cannot run - required files missing in kinetics folder')
-                print(f'Looking for TRACES_ALL, BKG, and PHOTONS files')
-                print(f'Files found in {step3_working_folder}: {list_of_files_step3 if "list_of_files_step3" in locals() else "Could not list files"}')
+    if use_position_averaging:
+        # For position averaging method, kinetics data is in step2/position_averaging_method/data/kinetics_data
+        step3_working_folder = os.path.join(working_folder, 'analysis', 'step2', 'position_averaging_method', 'data', 'kinetics_data')
+        step2_main_folder = os.path.join(working_folder, 'analysis', 'step2', 'position_averaging_method', 'data')
     else:
-        print('\nSTEP 3 was not executed.')
+        # For original method, step3 data should be in step2/original_method/data for input to step3
+        step3_working_folder = os.path.join(working_folder, 'analysis', 'step2', 'original_method', 'data')
+        step2_main_folder = os.path.join(working_folder, 'analysis', 'step2', 'original_method', 'data')
+    if step[2] == 'True':
+        if use_position_averaging:
+            # ================ SKIP STEP 3 WHEN USING POSITION AVERAGING ================
+            print('\nSTEP 3 was skipped (not needed with position averaging method).')
+            print('   Kinetics analysis is integrated into Step 2 with position averaging.')
+        else:
+            # ================ RUN ORIGINAL STEP 3 ================
+            # Load photons data for Step 3
+            photons_file = os.path.join(step2_main_folder, 'kinetics_data', 'PHOTONS.dat')
+            photons = np.loadtxt(photons_file)
+            
+            step3_results = step3.calculate_kinetics(exp_time, photons_threshold, background_level, 
+                                                   photons, working_folder, 'TRACES_ALL.dat', 
+                                                   mask_level, mask_singles, number_of_frames,
+                                                   verbose_flag, photon_threshold_flag)
+            if step3_results:
+                results_dict.update({f'step3_{k}': v for k, v in step3_results.items()})
+    else:
+        if use_position_averaging:
+            print('\nSTEP 3 was not executed (not needed with position averaging method).')
+        else:
+            print('\nSTEP 3 was not executed.')
     
     #####################################################################
         
     # folder and file management
-    step4_working_folder = os.path.join(working_folder, 'analysis', 'step3', 'data')
+    if use_position_averaging:
+        # For position averaging method, kinetics data is in step2/position_averaging_method/data/kinetics_data
+        step4_working_folder = os.path.join(working_folder, 'analysis', 'step2', 'position_averaging_method', 'data', 'kinetics_data')
+        expected_source = "Step 2 (position averaging method)"
+    else:
+        # For original method, kinetics data should be in step3/data
+        step4_working_folder = os.path.join(working_folder, 'analysis', 'step3', 'data')
+        expected_source = "Step 3 (original method)"
+        
     if step[3] == 'True':
         # ================ RUN STEP 4 ================
-        # Check if the required folder exists
+        # Check if the required kinetics data folder exists
         if not os.path.exists(step4_working_folder):
-            print(f'\nERROR: Step 4 cannot run - step3 data folder not found: {step4_working_folder}')
-            print('Make sure Step 3 completed successfully.')
+            print(f'\nERROR: Step 4 cannot run - kinetics data folder not found: {step4_working_folder}')
+            print(f'Make sure {expected_source} completed successfully and generated kinetics data.')
         else:
             try:
+                # Pass the kinetics folder to Step 4, but it will create its own analysis/step4 structure
                 step4_results = step4.estimate_binding_unbinding_times(exp_time, rango, step4_working_folder,
                                                 initial_params, likelihood_err_param,
                                                 opt_display_flag, hyper_exponential_flag, verbose_flag)
@@ -227,10 +240,10 @@ def run_analysis(selected_file, working_folder, step, params):
                     results_dict.update({f'step4_{k}': v for k, v in step4_results.items()})
             except FileNotFoundError as e:
                 print(f'\nERROR: Step 4 cannot run - required file not found: {e}')
-                print('Make sure Step 3 completed successfully and generated t_on.dat and t_off.dat files.')
+                print(f'Make sure {expected_source} completed successfully and generated t_on.dat and t_off.dat files.')
             except Exception as e:
                 print(f'\nERROR: Step 4 failed with error: {e}')
-                print('Check that Step 3 generated valid binding time data.')
+                print(f'Check that {expected_source} generated valid binding time data.')
     else:
         print('\nSTEP 4 was not executed.')
     
