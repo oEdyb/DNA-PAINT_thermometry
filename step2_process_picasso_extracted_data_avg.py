@@ -202,7 +202,7 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
     
     # ================ HISTOGRAM CONFIGURATION ================
     # set number of bins for FINE histograming 
-    N = int(0.7 * 2*pick_size*pixel_size*1000/10)
+    N = int(1.4 * 2*pick_size*pixel_size*1000/10)
     hist_2D_bin_size = pixel_size*1000*pick_size/N # this should be around 5 nm
     if verbose_flag:
         print(f'2D histogram bin size: {hist_2D_bin_size:.2f} nm')
