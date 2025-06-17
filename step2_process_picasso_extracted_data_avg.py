@@ -723,65 +723,48 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
                 plt.savefig(figure_path, dpi=300, bbox_inches='tight')
                 plt.close()
                 
-                # ================ PLOT IMPROVED PEAK DETECTION RESULTS ================
-                if docking_sites_temp != 1 and plot_flag:
-                    # Create histogram for visualization - same resolution as fine image
-                    z_hist_viz, x_edges_viz, y_edges_viz = np.histogram2d(
-                        x_position_of_picked, y_position_of_picked, 
-                        bins=N, range=hist_bounds, density=True
-                    )
-                    z_hist_viz = z_hist_viz.T
-                    x_centers_viz = x_edges_viz[:-1] + np.diff(x_edges_viz)/2
-                    y_centers_viz = y_edges_viz[:-1] + np.diff(y_edges_viz)/2
+                # ================ PLOT FINE 2D IMAGE ALT ================
+                plt.figure(4)
+                plt.imshow(z_hist, interpolation='none', origin='lower',
+                          extent=[x_hist_centers[0], x_hist_centers[-1], 
+                                  y_hist_centers[0], y_hist_centers[-1]])
+                ax = plt.gca()
+                ax.set_facecolor(bkg_color)
+                
+                if total_peaks_found > 0:
+                    peak_x = [coord[0] for coord in peak_coords]
+                    peak_y = [coord[1] for coord in peak_coords]
+                    plt.plot(peak_x, peak_y, 'x', markersize=9, 
+                            color='white', markeredgecolor='black', mew=1, label='binding sites')
                     
-                    # IMPROVED peak detection visualization
-                    plt.figure(4)
-                    plt.imshow(z_hist_viz, interpolation='none', origin='lower',
-                              extent=[x_centers_viz[0], x_centers_viz[-1], 
-                                      y_centers_viz[0], y_centers_viz[-1]])
-                    
-                    # Plot detected peaks with analysis radius circles
-                    if total_peaks_found > 0:
-                        peak_x = [coord[0] for coord in peak_coords]
-                        peak_y = [coord[1] for coord in peak_coords]
-                        plt.scatter(peak_x, peak_y, c='red', s=100, marker='x', 
-                                  linewidths=3, label=f'{total_peaks_found} improved peaks')
+                    for k, (circle_x, circle_y) in enumerate(peak_coords):
+                        circ = plot_circle((circle_x, circle_y), radius=analysis_radius, 
+                                          facecolor='none', edgecolor='white', linewidth=1)
+                        ax.add_patch(circ)
                         
-                        # Add analysis radius circles around detected peaks
-                        ax = plt.gca()
-                        for k, (px, py) in enumerate(peak_coords):
-                            circ = plot_circle((px, py), radius=analysis_radius, 
-                                              facecolor='none', edgecolor='red', linewidth=2, alpha=0.8)
-                            ax.add_patch(circ)
-                            
-                            # Add peak labels
-                            label_x = px + analysis_radius*1.1
-                            label_y = py + analysis_radius*0.3
-                            ax.text(label_x, label_y, f'Peak {k+1}', ha='center', va='center', 
-                                   fontsize=10, color='red', fontweight='bold')
-                        
-                        plt.legend()
-                    
-                    if NP_flag:
-                        plt.plot(x_avg_NP, y_avg_NP, 'o', markersize=10, markerfacecolor='white', 
-                                markeredgecolor='k', label='NP')
-                        plt.legend(loc='upper right')
-                    
-                    plt.ylabel(r'y ($\mu$m)')
-                    plt.xlabel(r'x ($\mu$m)')
-                    ax = plt.gca()
-                    ax.set_facecolor(bkg_color)
-                    cbar = plt.colorbar()
-                    cbar.ax.set_title(u'Locs')
-                    cbar.ax.tick_params()
-                    ax.set_title(f'Improved Peak Detection (vs original). Pick {i:02d}')
-                    
-                    # Save in image_FINE folder as requested
-                    aux_folder = manage_save_directory(figures_per_pick_folder, 'image_FINE')
-                    figure_name = f'xy_pick_IMPROVED_detection_{i:02d}'
-                    figure_path = os.path.join(aux_folder, f'{figure_name}.png')
-                    plt.savefig(figure_path, dpi=300, bbox_inches='tight')
-                    plt.close()
+                        # Peak labels  
+                        label_x = circle_x + analysis_radius*1.25
+                        label_y = circle_y + analysis_radius*0.25
+                        text_content = f"{k}"
+                        ax.text(label_x, label_y, text_content, ha='center', va='center', 
+                               rotation=0, fontsize=12, color='white')
+                
+                if NP_flag:
+                    plt.plot(x_avg_NP, y_avg_NP, 'o', markersize=8, markerfacecolor='C1', 
+                            markeredgecolor='white', label='NP')
+                    plt.legend(loc='upper right')
+                
+                plt.ylabel(r'y ($\mu$m)')
+                plt.xlabel(r'x ($\mu$m)')
+                cbar = plt.colorbar()
+                cbar.ax.set_title(u'Locs', fontsize=16)
+                cbar.ax.tick_params(labelsize=16)
+                ax.set_title(f'Position of locs per pick. Pick {i:02d}')
+                aux_folder = manage_save_directory(figures_per_pick_folder, 'image_FINE')
+                figure_name = f'xy_pick_image_alt_PAINT_{i:02d}'
+                figure_path = os.path.join(aux_folder, f'{figure_name}.png')
+                plt.savefig(figure_path, dpi=300, bbox_inches='tight')
+                plt.close()
                 
                 # ================ PLOT DISTANCE MATRICES ================
                 if len(cm_binding_sites_x) > 1:
