@@ -402,8 +402,8 @@ def calculate_tau_on_times(trace, threshold, bkg, exposure_time, mask_level, mas
         start_times.append(start)
         
         # Store start times for segments with sufficient data for averaging
-        if len(segment) > 4:
-            start_times_avg_photons.append(start)
+        # Store start time for all events to match SNR/SBR array sizes
+        start_times_avg_photons.append(start)
         
         # ================ SIMPLIFIED DOUBLE EVENT DETECTION ================
         # Improved: simple duration threshold instead of complex rolling window

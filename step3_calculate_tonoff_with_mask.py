@@ -182,17 +182,21 @@ def calculate_kinetics(exp_time, photons_threshold, background_level, photons, f
     tons = np.trim_zeros(tons)
     toffs = np.trim_zeros(toffs)
 
-    filter_indices = np.logical_and.reduce((
-        ~np.isnan(SNR_all),
-        ~np.isnan(SBR_all),
-        ~np.isinf(SNR_all),
-        ~np.isinf(SBR_all)
-    ))
-
-    # Apply the filter
-    tstart_SNR_all = tstart_SNR_all[filter_indices]
-    SNR_all = SNR_all[filter_indices]
-    SBR_all = SBR_all[filter_indices]
+    # Create filter indices only if arrays have the same length
+    if len(tstart_SNR_all) == len(SNR_all) == len(SBR_all):
+        filter_indices = np.logical_and.reduce((
+            ~np.isnan(SNR_all),
+            ~np.isnan(SBR_all),
+            ~np.isinf(SNR_all),
+            ~np.isinf(SBR_all)
+        ))
+        # Apply the filter
+        tstart_SNR_all = tstart_SNR_all[filter_indices]
+        SNR_all = SNR_all[filter_indices]
+        SBR_all = SBR_all[filter_indices]
+    else:
+        print(f"Warning: Array size mismatch - tstart_SNR_all: {len(tstart_SNR_all)}, SNR_all: {len(SNR_all)}, SBR_all: {len(SBR_all)}")
+        # Keep arrays as-is to avoid IndexError
 
     # ================ PROCESS INDIVIDUAL SITES DATA ================
     # PER SITE
@@ -253,17 +257,8 @@ def calculate_kinetics(exp_time, photons_threshold, background_level, photons, f
     tons = np.trim_zeros(tons)
     toffs = np.trim_zeros(toffs)
 
-    filter_indices = np.logical_and.reduce((
-        ~np.isnan(SNR_all),
-        ~np.isnan(SBR_all),
-        ~np.isinf(SNR_all),
-        ~np.isinf(SBR_all)
-    ))
-
-    # Apply the filter
-    tstart_SNR_all = tstart_SNR_all[filter_indices]
-    SNR_all = SNR_all[filter_indices]
-    SBR_all = SBR_all[filter_indices]
+    # Note: filtering was already applied above, so skip duplicate filtering to avoid size mismatch
+    # Arrays tstart_SNR_all, SNR_all, SBR_all were already filtered after main processing loop
 
     # ================ GENERATE BINDING TIME VS START TIME PLOT ================
     # Plot binding time vs start time.
