@@ -202,7 +202,7 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
     
     # ================ HISTOGRAM CONFIGURATION ================
     # set number of bins for FINE histograming 
-    N = int(1.4 * 2*pick_size*pixel_size*1000/10)
+    N = int(1 * 2*pick_size*pixel_size*1000/10)
     hist_2D_bin_size = pixel_size*1000*pick_size/N # this should be around 5 nm
     if verbose_flag:
         print(f'2D histogram bin size: {hist_2D_bin_size:.2f} nm')
@@ -298,38 +298,22 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
         x_hist_centers = x_hist[:-1] + x_hist_step/2
         y_hist_centers = y_hist[:-1] + y_hist_step/2
         
-        # ================ PEAK DETECTION INITIALIZATION ================
-        # Initialize variables for peak detection
-        total_peaks_found = 0
-        threshold_COARSE = th
-        bins_COARSE = 1 if docking_sites == 1 else 20
-        docking_sites_temp = docking_sites
-        site_goal = docking_sites
-        z_hist_COARSE = None
+        # ================ IMPROVED PEAK DETECTION ================
+        # Use improved peak detection with finer resolution and distance constraints
+        from auxiliary_functions import detect_peaks_improved
         
-        # ================ ADAPTIVE PEAK DETECTION LOOP ================
-        while total_peaks_found != site_goal:
-            if docking_sites_temp == docking_sites - 1 or total_peaks_found == docking_sites - 1:
-                docking_sites_temp = docking_sites - 1
-                if total_peaks_found == docking_sites - 1:
-                    break
-            
-            # Make COARSE 2D histogram - only once per iteration
-            z_hist_COARSE, x_hist_COARSE, y_hist_COARSE = np.histogram2d(
-                x_position_of_picked, y_position_of_picked, 
-                bins=bins_COARSE, range=hist_bounds, density=True
-            )
-            z_hist_COARSE = z_hist_COARSE.T
-            z_hist_COARSE = np.where(z_hist_COARSE < threshold_COARSE, 0, z_hist_COARSE)
-            
-            # Peak detection
-            detected_peaks = detect_peaks(z_hist_COARSE)
-            index_peaks = np.where(detected_peaks == True)
-            total_peaks_found = len(index_peaks[0])
-            
-            threshold_COARSE += 5
-            if threshold_COARSE > 5000:
-                break
+        # Estimate minimum distance between binding sites (adjust as needed)
+        min_distance_nm = 15  # Minimum 15nm separation between peaks
+        
+        # Detect peaks with improved algorithm
+        peak_coords = detect_peaks_improved(
+            x_position_of_picked, y_position_of_picked, 
+            hist_bounds, expected_peaks=docking_sites, 
+            min_distance_nm=min_distance_nm
+        )
+        
+        total_peaks_found = len(peak_coords)
+        docking_sites_temp = min(total_peaks_found, docking_sites)
                 
         # ================ VERIFY PEAK DETECTION RESULTS ================
         peaks_flag = total_peaks_found > 0
@@ -349,13 +333,7 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
             
         # ================ PROCESS EACH DETECTED PEAK ================
         if peaks_flag:
-            x_hist_COARSE_centers = x_hist_COARSE[:-1] + np.diff(x_hist_COARSE)/2
-            y_hist_COARSE_centers = y_hist_COARSE[:-1] + np.diff(y_hist_COARSE)/2
-            
-            # Pre-calculate coordinates of all peaks
-            peak_coords = [(x_hist_COARSE_centers[index_peaks[1][j]], 
-                           y_hist_COARSE_centers[index_peaks[0][j]]) 
-                          for j in range(total_peaks_found)]
+            # peak_coords is already calculated by detect_peaks_improved
             
             for j in range(total_peaks_found):
                 if docking_sites_temp != 1 and verbose_flag:
@@ -665,12 +643,12 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
                 
                 if peaks_flag and len(cm_binding_sites_x) > 1:
                     plt.plot(cm_binding_sites_x, cm_binding_sites_y, 'x', markersize=9, 
-                            color='white', label='binding sites')
+                            color='white', markeredgecolor='black', mew=1, label='binding sites')
                     plt.plot(x_fitted, y_fitted, '--', linewidth=1, color='white')
                     
                     for k, (circle_x, circle_y) in enumerate(zip(cm_binding_sites_x, cm_binding_sites_y)):
                         circ = plot_circle((circle_x, circle_y), radius=analysis_radius, 
-                                          color='white', fill=False)
+                                          facecolor='none', edgecolor='white', linewidth=1)
                         ax.add_patch(circ)
                         
                         # Peak labels
@@ -707,13 +685,13 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
                 
                 if peaks_flag and len(cm_binding_sites_x) > 1:
                     plt.plot(cm_binding_sites_x, cm_binding_sites_y, 'x', markersize=5,
-                            color='white', mew=2, label='Binding Sites', alpha=0.65)
+                            color='white', markeredgecolor='black', mew=1, label='Binding Sites', alpha=0.65)
                     ax = plt.gca()
                     ax.set_facecolor(bkg_color)
                     
                     for k, (circle_x, circle_y) in enumerate(zip(cm_binding_sites_x, cm_binding_sites_y)):
                         circ = plot_circle((circle_x, circle_y), radius=analysis_radius, 
-                                          color='white', fill=False, linewidth=1, alpha=0.65)
+                                          facecolor='none', edgecolor='white', linewidth=1, alpha=0.65)
                         ax.add_patch(circ)
                         
                         # Peak labels
@@ -745,13 +723,44 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
                 plt.savefig(figure_path, dpi=300, bbox_inches='tight')
                 plt.close()
                 
-                # ================ PLOT COARSE AND BINARY IMAGES ================
-                if docking_sites_temp != 1:
-                    # COARSE 2d image
+                # ================ PLOT IMPROVED PEAK DETECTION RESULTS ================
+                if docking_sites_temp != 1 and plot_flag:
+                    # Create histogram for visualization - same resolution as fine image
+                    z_hist_viz, x_edges_viz, y_edges_viz = np.histogram2d(
+                        x_position_of_picked, y_position_of_picked, 
+                        bins=N, range=hist_bounds, density=True
+                    )
+                    z_hist_viz = z_hist_viz.T
+                    x_centers_viz = x_edges_viz[:-1] + np.diff(x_edges_viz)/2
+                    y_centers_viz = y_edges_viz[:-1] + np.diff(y_edges_viz)/2
+                    
+                    # IMPROVED peak detection visualization
                     plt.figure(4)
-                    plt.imshow(z_hist_COARSE, interpolation='none', origin='lower',
-                              extent=[x_hist_COARSE_centers[0], x_hist_COARSE_centers[-1], 
-                                      y_hist_COARSE_centers[0], y_hist_COARSE_centers[-1]])
+                    plt.imshow(z_hist_viz, interpolation='none', origin='lower',
+                              extent=[x_centers_viz[0], x_centers_viz[-1], 
+                                      y_centers_viz[0], y_centers_viz[-1]])
+                    
+                    # Plot detected peaks with analysis radius circles
+                    if total_peaks_found > 0:
+                        peak_x = [coord[0] for coord in peak_coords]
+                        peak_y = [coord[1] for coord in peak_coords]
+                        plt.scatter(peak_x, peak_y, c='red', s=100, marker='x', 
+                                  linewidths=3, label=f'{total_peaks_found} improved peaks')
+                        
+                        # Add analysis radius circles around detected peaks
+                        ax = plt.gca()
+                        for k, (px, py) in enumerate(peak_coords):
+                            circ = plot_circle((px, py), radius=analysis_radius, 
+                                              facecolor='none', edgecolor='red', linewidth=2, alpha=0.8)
+                            ax.add_patch(circ)
+                            
+                            # Add peak labels
+                            label_x = px + analysis_radius*1.1
+                            label_y = py + analysis_radius*0.3
+                            ax.text(label_x, label_y, f'Peak {k+1}', ha='center', va='center', 
+                                   fontsize=10, color='red', fontweight='bold')
+                        
+                        plt.legend()
                     
                     if NP_flag:
                         plt.plot(x_avg_NP, y_avg_NP, 'o', markersize=10, markerfacecolor='white', 
@@ -765,30 +774,11 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
                     cbar = plt.colorbar()
                     cbar.ax.set_title(u'Locs')
                     cbar.ax.tick_params()
-                    ax.set_title(f'Position of locs per pick. Pick {i:02d}')
-                    aux_folder = manage_save_directory(figures_per_pick_folder, 'image_COARSE')
-                    figure_name = f'xy_pick_image_COARSE_PAINT_{i:02d}'
-                    figure_path = os.path.join(aux_folder, f'{figure_name}.png')
-                    plt.savefig(figure_path, dpi=300, bbox_inches='tight')
-                    plt.close()
+                    ax.set_title(f'Improved Peak Detection (vs original). Pick {i:02d}')
                     
-                    # BINARY 2d image
-                    plt.figure(5)
-                    plt.imshow(detected_peaks, interpolation='none', origin='lower', cmap='binary',
-                              extent=[x_hist_COARSE_centers[0], x_hist_COARSE_centers[-1], 
-                                      y_hist_COARSE_centers[0], y_hist_COARSE_centers[-1]])
-                    
-                    if NP_flag:
-                        plt.plot(x_avg_NP, y_avg_NP, 'o', markersize=10, markerfacecolor='C1', 
-                                markeredgecolor='k', label='NP')
-                        plt.legend(loc='upper right')
-                    
-                    plt.ylabel(r'y ($\mu$m)')
-                    plt.xlabel(r'x ($\mu$m)')
-                    ax = plt.gca()
-                    ax.set_title(f'Position of locs per pick. Pick {i:02d}')
-                    aux_folder = manage_save_directory(figures_per_pick_folder, 'binary_image')
-                    figure_name = f'xy_pick_image_peaks_PAINT_{i:02d}'
+                    # Save in image_FINE folder as requested
+                    aux_folder = manage_save_directory(figures_per_pick_folder, 'image_FINE')
+                    figure_name = f'xy_pick_IMPROVED_detection_{i:02d}'
                     figure_path = os.path.join(aux_folder, f'{figure_name}.png')
                     plt.savefig(figure_path, dpi=300, bbox_inches='tight')
                     plt.close()
@@ -1059,6 +1049,19 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
         figure_path = os.path.join(figures_folder, 'photon_histogram.png')
         plt.savefig(figure_path, dpi=300, bbox_inches='tight')
         plt.close()
+        
+        # Standard deviation histogram
+        if len(std_photons_all) > 0:
+            plt.figure()
+            bin_edges = np.histogram_bin_edges(std_photons_all, 'fd')
+            plt.hist(std_photons_all, bins=bin_edges)
+            plt.xlabel('Standard deviation [photons]')
+            plt.ylabel('Frequency')
+            plt.title('Histogram of photon standard deviation per binding event')
+            plt.yscale('log')
+            figure_path = os.path.join(figures_folder, 'std_photons_histogram.png')
+            plt.savefig(figure_path, dpi=300, bbox_inches='tight')
+            plt.close()
         
         # SNR and SBR scatter plot
         if len(SNR_filtered) > 0:
