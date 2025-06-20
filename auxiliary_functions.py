@@ -136,6 +136,40 @@ def detect_peaks_improved(x_positions, y_positions, hist_bounds, expected_peaks=
     return filtered_peaks
 
 
+def get_peak_detection_histogram(x_positions, y_positions, hist_bounds, bins_fine=50, sigma=0.8):
+    """
+    Get the histogram data used for peak detection visualization.
+    
+    Args:
+        x_positions, y_positions: coordinate arrays
+        hist_bounds: histogram boundaries
+        bins_fine: number of bins for histogram (default: 50)
+        sigma: gaussian filter sigma (default: 0.8)
+    
+    Returns:
+        z_hist_smooth: smoothed histogram data
+        x_centers: x bin centers
+        y_centers: y bin centers
+    """
+    from scipy.ndimage import gaussian_filter
+    
+    # Create fine 2D histogram
+    z_hist, x_edges, y_edges = np.histogram2d(
+        x_positions, y_positions, 
+        bins=bins_fine, range=hist_bounds, density=True
+    )
+    z_hist = z_hist.T
+    
+    # Apply gaussian smoothing
+    z_hist_smooth = gaussian_filter(z_hist, sigma=sigma)
+    
+    # Get bin centers
+    x_centers = x_edges[:-1] + np.diff(x_edges)/2
+    y_centers = y_edges[:-1] + np.diff(y_edges)/2
+    
+    return z_hist_smooth, x_centers, y_centers
+
+
 # ================ GEOMETRIC CALCULATION FUNCTIONS ================
 # distance calculation circle
 def distance(x, y, xc, yc):
@@ -203,9 +237,17 @@ def perpendicular_distance(slope, intercept, x_point, y_point):
 # ================ FILE AND DIRECTORY UTILITIES ================
 def manage_save_directory(path, new_folder_name):
     # Small function to create a new folder if not exist.
+    # Normalize path to handle mixed separators
+    path = os.path.normpath(path)
     new_folder_path = os.path.join(path, new_folder_name)
+    new_folder_path = os.path.normpath(new_folder_path)
+    
     if not os.path.exists(new_folder_path):
-        os.makedirs(new_folder_path)
+        try:
+            os.makedirs(new_folder_path)
+        except OSError as e:
+            print(f"Error creating directory {new_folder_path}: {e}")
+            raise
     return new_folder_path
 
 # ================ DATA BINNING FUNCTIONS ================
@@ -402,8 +444,8 @@ def calculate_tau_on_times(trace, threshold, bkg, exposure_time, mask_level, mas
         start_times.append(start)
         
         # Store start times for segments with sufficient data for averaging
-        # Store start time for all events to match SNR/SBR array sizes
-        start_times_avg_photons.append(start)
+        if len(segment) > 4:
+            start_times_avg_photons.append(start)
         
         # ================ SIMPLIFIED DOUBLE EVENT DETECTION ================
         # Improved: simple duration threshold instead of complex rolling window

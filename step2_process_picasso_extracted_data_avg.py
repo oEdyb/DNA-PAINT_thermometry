@@ -48,7 +48,7 @@ from matplotlib.patches import Circle as plot_circle
 import tkinter as tk
 import tkinter.filedialog as fd
 import re
-from auxiliary_functions import detect_peaks, distance, fit_linear, \
+from auxiliary_functions import detect_peaks, detect_peaks_improved, get_peak_detection_histogram, distance, fit_linear, \
     perpendicular_distance, manage_save_directory, plot_vs_time_with_hist, update_pkl, \
     calculate_tau_on_times_average
 from sklearn.mixture import GaussianMixture
@@ -299,13 +299,10 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
         y_hist_centers = y_hist[:-1] + y_hist_step/2
         
         # ================ IMPROVED PEAK DETECTION ================
-        # Use improved peak detection with finer resolution and distance constraints
-        from auxiliary_functions import detect_peaks_improved
-        
-        # Estimate minimum distance between binding sites (adjust as needed)
+        # Use improved peak detection function from auxiliary_functions
         min_distance_nm = 15  # Minimum 15nm separation between peaks
         
-        # Detect peaks with improved algorithm
+        # Call the function we created instead of duplicating code
         peak_coords = detect_peaks_improved(
             x_position_of_picked, y_position_of_picked, 
             hist_bounds, expected_peaks=docking_sites, 
@@ -641,96 +638,6 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
                 ax = plt.gca()
                 ax.set_facecolor(bkg_color)
                 
-                if peaks_flag and len(cm_binding_sites_x) > 1:
-                    plt.plot(cm_binding_sites_x, cm_binding_sites_y, 'x', markersize=9, 
-                            color='white', markeredgecolor='black', mew=1, label='binding sites')
-                    plt.plot(x_fitted, y_fitted, '--', linewidth=1, color='white')
-                    
-                    for k, (circle_x, circle_y) in enumerate(zip(cm_binding_sites_x, cm_binding_sites_y)):
-                        circ = plot_circle((circle_x, circle_y), radius=analysis_radius, 
-                                          facecolor='none', edgecolor='white', linewidth=1)
-                        ax.add_patch(circ)
-                        
-                        # Peak labels
-                        theta = np.arctan(slope)
-                        perpendicular_x = circle_x + analysis_radius*1.25*np.cos(theta+np.pi/2)
-                        perpendicular_y = circle_y + -1/slope * (perpendicular_x-circle_x)
-                        text_position = (perpendicular_x, perpendicular_y)
-                        text_content = f"{ranks[k]}"
-                        ax.text(*text_position, text_content, ha='center', va='center', 
-                               rotation=0, fontsize=12, color='white')
-                
-                if NP_flag:
-                    plt.plot(x_avg_NP, y_avg_NP, 'o', markersize=8, markerfacecolor='C1', 
-                            markeredgecolor='white', label='NP')
-                    plt.legend(loc='upper right')
-                
-                plt.ylabel(r'y ($\mu$m)')
-                plt.xlabel(r'x ($\mu$m)')
-                cbar = plt.colorbar()
-                cbar.ax.set_title(u'Locs', fontsize=16)
-                cbar.ax.tick_params(labelsize=16)
-                ax.set_title(f'Position of locs per pick. Pick {i:02d}')
-                aux_folder = manage_save_directory(figures_per_pick_folder, 'image_FINE')
-                figure_name = f'xy_pick_image_PAINT_{i:02d}'
-                figure_path = os.path.join(aux_folder, f'{figure_name}.png')
-                plt.savefig(figure_path, dpi=300, bbox_inches='tight')
-                plt.close()
-                
-                # ================ PLOT FINE 2D IMAGE FOR PAPER ================
-                plt.figure(3)
-                plt.imshow(z_hist, interpolation='none', origin='lower',
-                          extent=[x_hist_centers[0], x_hist_centers[-1], 
-                                  y_hist_centers[0], y_hist_centers[-1]])
-                
-                if peaks_flag and len(cm_binding_sites_x) > 1:
-                    plt.plot(cm_binding_sites_x, cm_binding_sites_y, 'x', markersize=5,
-                            color='white', markeredgecolor='black', mew=1, label='Binding Sites', alpha=0.65)
-                    ax = plt.gca()
-                    ax.set_facecolor(bkg_color)
-                    
-                    for k, (circle_x, circle_y) in enumerate(zip(cm_binding_sites_x, cm_binding_sites_y)):
-                        circ = plot_circle((circle_x, circle_y), radius=analysis_radius, 
-                                          facecolor='none', edgecolor='white', linewidth=1, alpha=0.65)
-                        ax.add_patch(circ)
-                        
-                        # Peak labels
-                        theta = np.arctan(-abs(slope))
-                        perpendicular_x = circle_x + analysis_radius*1.25*np.cos(theta+np.pi/2)
-                        perpendicular_y = circle_y + -1/slope * (perpendicular_x-circle_x)
-                        text_position = (perpendicular_x, perpendicular_y)
-                        text_content = f"{ranks[k]}"
-                        ax.text(*text_position, text_content, ha='center', va='center', 
-                               rotation=0, fontsize=11, color='white', alpha=0.65)
-                
-                if NP_flag:
-                    plt.plot(x_avg_NP, y_avg_NP, 'o', markersize=8, markerfacecolor='white', 
-                            markeredgecolor='black', label='Center of NP')
-                    plt.legend(loc='upper left')
-                
-                scalebar = ScaleBar(1e3, 'nm', location='lower left') 
-                ax.add_artist(scalebar)
-                ax.get_xaxis().set_visible(False)
-                ax.get_yaxis().set_visible(False)
-                ax = plt.gca()
-                ax.set_facecolor(bkg_color)
-                cbar = plt.colorbar()
-                cbar.ax.set_title(u'Locs')
-                cbar.ax.tick_params()
-                aux_folder = manage_save_directory(figures_per_pick_folder, 'image_FINE')
-                figure_name = f'PAPER_xy_pick_image_PAINT_{i:02d}'
-                figure_path = os.path.join(aux_folder, f'{figure_name}.png')
-                plt.savefig(figure_path, dpi=300, bbox_inches='tight')
-                plt.close()
-                
-                # ================ PLOT FINE 2D IMAGE ALT ================
-                plt.figure(4)
-                plt.imshow(z_hist, interpolation='none', origin='lower',
-                          extent=[x_hist_centers[0], x_hist_centers[-1], 
-                                  y_hist_centers[0], y_hist_centers[-1]])
-                ax = plt.gca()
-                ax.set_facecolor(bkg_color)
-                
                 if total_peaks_found > 0:
                     peak_x = [coord[0] for coord in peak_coords]
                     peak_y = [coord[1] for coord in peak_coords]
@@ -749,7 +656,7 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
                         ax.text(label_x, label_y, text_content, ha='center', va='center', 
                                rotation=0, fontsize=12, color='white')
                 
-                if NP_flag:
+                if NP_flag and x_avg_NP is not None:
                     plt.plot(x_avg_NP, y_avg_NP, 'o', markersize=8, markerfacecolor='C1', 
                             markeredgecolor='white', label='NP')
                     plt.legend(loc='upper right')
@@ -759,12 +666,55 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
                 cbar = plt.colorbar()
                 cbar.ax.set_title(u'Locs', fontsize=16)
                 cbar.ax.tick_params(labelsize=16)
-                ax.set_title(f'Position of locs per pick. Pick {i:02d}')
+                ax.set_title(f'Pick {i:02d}', fontsize=10)
                 aux_folder = manage_save_directory(figures_per_pick_folder, 'image_FINE')
-                figure_name = f'xy_pick_image_alt_PAINT_{i:02d}'
+                figure_name = f'xy_pick_image_PAINT_{i:02d}'
                 figure_path = os.path.join(aux_folder, f'{figure_name}.png')
                 plt.savefig(figure_path, dpi=300, bbox_inches='tight')
                 plt.close()
+                
+                # ================ PLOT PEAK DETECTION PROCESS ================
+                if total_peaks_found > 0:
+                    # Use the auxiliary function to get histogram data (same logic as detect_peaks_improved)
+                    z_hist_smooth_detect, x_centers_detect, y_centers_detect = get_peak_detection_histogram(
+                        x_position_of_picked, y_position_of_picked, hist_bounds
+                    )
+                    
+                    plt.figure(5)
+                    plt.imshow(z_hist_smooth_detect, interpolation='none', origin='lower',
+                              extent=[x_centers_detect[0], x_centers_detect[-1], 
+                                      y_centers_detect[0], y_centers_detect[-1]], 
+                              cmap='viridis')
+                    ax = plt.gca()
+                    ax.set_facecolor(bkg_color)
+                    
+                    # Show detected peaks as red circles
+                    peak_x = [coord[0] for coord in peak_coords]
+                    peak_y = [coord[1] for coord in peak_coords]
+                    plt.scatter(peak_x, peak_y, c='red', s=150, marker='o', 
+                              edgecolors='white', linewidths=2, label=f'{total_peaks_found} detected peaks')
+                    
+                    # Add peak numbers
+                    for k, (px, py) in enumerate(peak_coords):
+                        ax.text(px, py, f'{k}', ha='center', va='center', 
+                               fontsize=10, color='white', fontweight='bold')
+                    
+                    if NP_flag and x_avg_NP is not None:
+                        plt.plot(x_avg_NP, y_avg_NP, 's', markersize=10, markerfacecolor='yellow', 
+                                markeredgecolor='black', label='NP')
+                    
+                    plt.legend(loc='upper right')
+                    plt.ylabel(r'y ($\mu$m)')
+                    plt.xlabel(r'x ($\mu$m)')
+                    cbar = plt.colorbar()
+                    cbar.ax.set_title(u'Density')
+                    cbar.ax.tick_params()
+                    ax.set_title(f'Peak detection - Pick {i:02d}', fontsize=10)
+                    aux_folder = manage_save_directory(figures_per_pick_folder, 'image_peak_detection')
+                    figure_name = f'peak_detection_process_{i:02d}'
+                    figure_path = os.path.join(aux_folder, f'{figure_name}.png')
+                    plt.savefig(figure_path, dpi=300, bbox_inches='tight')
+                    plt.close()
                 
                 # ================ PLOT DISTANCE MATRICES ================
                 if len(cm_binding_sites_x) > 1:
