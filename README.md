@@ -17,6 +17,7 @@ Analysis pipeline for DNA-PAINT thermometry experiments.
 - Windows operating system
 - Python 3.10 or newer
 - Internet connection for package installation
+- Required Python packages listed in requirements.txt
 
 ## What it does
 
@@ -31,4 +32,4 @@ The pipeline processes DNA-PAINT data through four steps:
 Results are saved in organized folders with:
 - Binding time data files
 - Super-resolution images
-- Analysis plots and histograms 
+- Analysis plots and histograms  
