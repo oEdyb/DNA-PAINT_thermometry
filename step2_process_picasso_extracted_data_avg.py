@@ -38,32 +38,238 @@ Warning: the program is coded to follow filename convention of the script
 """
 # ================ IMPORT LIBRARIES ================
 import os
-
-import scipy.signal
-
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib_scalebar.scalebar import ScaleBar
-from matplotlib.patches import Circle as plot_circle
 import tkinter as tk
 import tkinter.filedialog as fd
+from scipy.optimize import curve_fit
+from scipy.ndimage import gaussian_filter
+import pickle
+import scipy.signal
+from matplotlib_scalebar.scalebar import ScaleBar
+from matplotlib.patches import Circle as plot_circle
 import re
-from auxiliary_functions import detect_peaks, detect_peaks_improved, get_peak_detection_histogram, distance, fit_linear, \
-    perpendicular_distance, manage_save_directory, plot_vs_time_with_hist, update_pkl, \
-    calculate_tau_on_times_average
 from sklearn.mixture import GaussianMixture
 import time
-from auxiliary_functions_gaussian import plot_gaussian_2d
 import scipy
 import glob
 
+from auxiliary_functions import (
+    detect_peaks, detect_peaks_improved, get_peak_detection_histogram, distance, fit_linear,
+    perpendicular_distance, manage_save_directory, plot_vs_time_with_hist, update_pkl,
+    calculate_tau_on_times_average
+)
+from auxiliary_functions_gaussian import plot_gaussian_2d
+from data_processing_utils import (
+    load_dat_file, get_pick_files, calculate_histogram_bounds,
+    create_analysis_folders, save_data_array
+)
+from plotting_utils import (
+    setup_matplotlib, plot_pick_time_series, plot_scatter_with_np,
+    plot_fine_2d_histogram, plot_peak_detection_process, plot_distance_matrix,
+    plot_global_position_histogram, plot_kinetics_analysis,
+    plot_binding_site_photon_distributions
+)
+from constants import (
+    HIST_2D_BIN_SIZE, NUMBER_OF_BINS_TIME, POSITION_HIST_RANGE,
+    PERPENDICULAR_FILTER_DISTANCE, DOUBLE_EVENT_THRESHOLD,
+    get_default_config, FOLDER_NAMES
+)
+
 # ================ MATPLOTLIB CONFIGURATION ================
-plt.ioff()  # Turn off interactive mode
-plt.close("all")
+setup_matplotlib()
 cmap = plt.cm.get_cmap('viridis')
 bkg_color = cmap(0)
 
 ##############################################################################
+
+def setup_analysis_environment(working_folder):
+    """Setup analysis folders and load input data."""
+    main_folder = manage_save_directory(working_folder, 'step2_processed_data')
+    folders = create_analysis_folders(main_folder)
+    
+    input_data = {}
+    data_files = {
+        'x': 'xy_coordinates.dat',
+        'photons': 'photons.dat', 
+        'frame': 'frame.dat',
+        'pick': 'pick.dat'
+    }
+    
+    for key, filename in data_files.items():
+        filepath = os.path.join(working_folder, filename)
+        data = load_dat_file(filepath)
+        
+        if key == 'x':
+            if data.size > 0 and data.ndim == 2:
+                input_data['x'] = data[:, 0]
+                input_data['y'] = data[:, 1]
+            else:
+                print(f"Warning: Invalid coordinate data in {filename}")
+                input_data['x'] = np.array([])
+                input_data['y'] = np.array([])
+        else:
+            input_data[key] = data
+    
+    # Load NP data if available
+    np_files = {
+        'x_NP': 'NP_data/xy_coordinates_NP.dat',
+        'pick_NP': 'NP_data/pick_NP.dat'
+    }
+    
+    for key, filename in np_files.items():
+        filepath = os.path.join(working_folder, filename)
+        data = load_dat_file(filepath)
+        
+        if key == 'x_NP' and data.size > 0 and data.ndim == 2:
+            input_data['x_NP'] = data[:, 0]
+            input_data['y_NP'] = data[:, 1]
+        elif key == 'pick_NP':
+            input_data['pick_NP'] = data
+        else:
+            input_data[key] = np.array([])
+    
+    return main_folder, folders, input_data
+
+
+def detect_binding_sites(x_positions, y_positions, hist_bounds, docking_sites, th):
+    """Detect binding sites using peak detection."""
+    peaks_flag = False
+    peak_coords = []
+    total_peaks_found = 0
+    
+    if len(x_positions) < 10:
+        return peaks_flag, peak_coords, total_peaks_found
+    
+    for threshold_multiplier in [1.0, 0.8, 0.6, 0.4, 0.2]:
+        current_th = th * threshold_multiplier
+        peak_coords = detect_peaks_improved(
+            x_positions, y_positions, hist_bounds, 
+            expected_peaks=docking_sites, min_distance_nm=10
+        )
+        
+        total_peaks_found = len(peak_coords)
+        
+        if total_peaks_found == docking_sites:
+            peaks_flag = True
+            break
+        elif total_peaks_found > 0:
+            peaks_flag = True
+    
+    return peaks_flag, peak_coords, total_peaks_found
+
+
+def analyze_binding_sites(peak_coords, x_positions, y_positions, photons, analysis_radius):
+    """Analyze binding sites and calculate statistics."""
+    cm_binding_sites_x = []
+    cm_binding_sites_y = []
+    cm_std_dev_binding_sites_x = []
+    cm_std_dev_binding_sites_y = []
+    
+    for peak_x, peak_y in peak_coords:
+        distances = np.sqrt((x_positions - peak_x)**2 + (y_positions - peak_y)**2)
+        within_radius = distances < analysis_radius
+        
+        if np.sum(within_radius) > 0:
+            # Calculate center of mass
+            weights = photons[within_radius]
+            cm_x = np.average(x_positions[within_radius], weights=weights)
+            cm_y = np.average(y_positions[within_radius], weights=weights)
+            
+            # Calculate standard deviations
+            std_x = np.std(x_positions[within_radius], ddof=1)
+            std_y = np.std(y_positions[within_radius], ddof=1)
+            
+            cm_binding_sites_x.append(cm_x)
+            cm_binding_sites_y.append(cm_y)
+            cm_std_dev_binding_sites_x.append(std_x)
+            cm_std_dev_binding_sites_y.append(std_y)
+    
+    return (np.array(cm_binding_sites_x), np.array(cm_binding_sites_y),
+            np.array(cm_std_dev_binding_sites_x), np.array(cm_std_dev_binding_sites_y))
+
+
+def calculate_distance_matrices(cm_binding_sites_x, cm_binding_sites_y, 
+                               cm_std_dev_binding_sites_x, cm_std_dev_binding_sites_y,
+                               x_avg_NP=None, y_avg_NP=None, x_std_dev_NP=None, y_std_dev_NP=None):
+    """Calculate distance and standard deviation matrices."""
+    total_peaks_found = len(cm_binding_sites_x)
+    matrix_size = total_peaks_found + 1 if x_avg_NP is not None else total_peaks_found
+    
+    matrix_distance = np.zeros([matrix_size, matrix_size])
+    matrix_std_dev = np.zeros([matrix_size, matrix_size])
+    
+    # NP to binding sites distances
+    if x_avg_NP is not None and y_avg_NP is not None:
+        np_to_binding_distances = np.sqrt(
+            (cm_binding_sites_x - x_avg_NP)**2 + 
+            (cm_binding_sites_y - y_avg_NP)**2) * 1e3
+        
+        matrix_distance[0, 1:] = np_to_binding_distances
+        matrix_distance[1:, 0] = np_to_binding_distances
+        if x_std_dev_NP is not None and y_std_dev_NP is not None:
+            matrix_std_dev[0, 0] = max(x_std_dev_NP, y_std_dev_NP) * 1e3
+    
+    # Binding site to binding site distances
+    for j in range(total_peaks_found):
+        matrix_std_dev[j + 1, j + 1] = max(
+            cm_std_dev_binding_sites_x[j], cm_std_dev_binding_sites_y[j]) * 1e3
+        
+        for k in range(j + 1, total_peaks_found):
+            distance_between_locs_CM = np.sqrt(
+                (cm_binding_sites_x[k] - cm_binding_sites_x[j])**2 + 
+                (cm_binding_sites_y[k] - cm_binding_sites_y[j])**2) * 1e3
+            
+            matrix_distance[j + 1, k + 1] = distance_between_locs_CM
+            matrix_distance[k + 1, j + 1] = distance_between_locs_CM
+    
+    return matrix_distance, matrix_std_dev
+
+
+def process_single_pick(pick_id, pick_data, config, folders, all_traces, all_traces_per_site,
+                       positions_concat_NP, positions_concat_origami, 
+                       photons_concat, bkg_concat, frame_concat, locs_of_picked,
+                       locs_of_picked_vs_time, bin_centers_minutes):
+    """Process a single pick and return results."""
+    
+    # Extract pick data
+    x_position_of_picked = pick_data['x']
+    y_position_of_picked = pick_data['y'] 
+    photons_of_picked = pick_data['photons']
+    frame_of_picked = pick_data['frame']
+    bkg_of_picked = pick_data.get('bkg', np.zeros_like(photons_of_picked))
+    
+    # Calculate histogram bounds
+    hist_bounds = calculate_histogram_bounds(x_position_of_picked, y_position_of_picked)
+    
+    # Create 2D histogram
+    z_hist, x_hist_edges, y_hist_edges = np.histogram2d(
+        x_position_of_picked, y_position_of_picked, 
+        bins=HIST_2D_BIN_SIZE, range=hist_bounds, density=True
+    )
+    z_hist = z_hist.T
+    x_hist_centers = x_hist_edges[:-1] + np.diff(x_hist_edges)/2
+    y_hist_centers = y_hist_edges[:-1] + np.diff(y_hist_edges)/2
+    
+    # Detect binding sites
+    peaks_flag, peak_coords, total_peaks_found = detect_binding_sites(
+        x_position_of_picked, y_position_of_picked, hist_bounds, 
+        config['docking_sites'], config['threshold']
+    )
+    
+    # Initialize results
+    results = {
+        'peaks_flag': peaks_flag,
+        'total_peaks_found': total_peaks_found,
+        'peak_coords': peak_coords,
+        'hist_data': (z_hist, x_hist_centers, y_hist_centers),
+        'positions': (x_position_of_picked, y_position_of_picked),
+        'photons': photons_of_picked,
+        'frame': frame_of_picked
+    }
+    
+    return results
+
 
 def process_dat_files(number_of_frames, exp_time, working_folder,
                       docking_sites, NP_flag, pixel_size, pick_size, 
@@ -1132,33 +1338,25 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
 
 if __name__ == '__main__':
     
-    # load and open folder and file
-    base_folder = "C:\\Users\\olled\\Documents\\DNA-PAINT\\Data\\single_channel_DNA-PAINT_example\\Week_4\\All_DNA_Origami\\17_picks"
+    config = get_default_config()
+    
+    # Load and open folder and file
     root = tk.Tk()
-    selected_file = fd.askopenfilename(initialdir = base_folder,
-                                          filetypes=(("", "*.dat") , ("", "*.")))   
+    selected_file = fd.askopenfilename(
+        initialdir=config['base_folder'],
+        filetypes=(("DAT files", "*.dat"), ("All files", "*.*"))
+    )   
     root.withdraw()
-    working_folder = os.path.dirname(selected_file)
     
-    # docking site per origami
-    docking_sites = 3
-    # is there any NP (hybridized structure)
-    NP_flag = False
-    # camera pixel size
-    pixel_size = 0.130 # in um
-    # size of the pick used in picasso
-    pick_size = 3 # in camera pixels (put the same number used in Picasso)
-    # size of the pick to include locs around the detected peaks
-    radius_of_pick_to_average = 0.25 # in camera pixel size
-    # set an intensity threshold to avoid dumb peak detection in the background
-    # this threshold is arbitrary, don't worry about this parameter, the code 
-    # change it automatically to detect the number of docking sites set above
-    th = 1
-    # time parameters☺
-    number_of_frames = 12000
-    exp_time = 0.1 # in s
-    plot_flag = True
-    
-    process_dat_files(number_of_frames, exp_time, working_folder,
-                          docking_sites, NP_flag, pixel_size, pick_size, 
-                          radius_of_pick_to_average, th, plot_flag, True)
+    if selected_file:
+        working_folder = os.path.dirname(selected_file)
+        
+        # Process the files
+        results = process_dat_files(
+            config['number_of_frames'], config['exp_time'], working_folder,
+            config['docking_sites'], config['NP_flag'], config['pixel_size'], 
+            config['pick_size'], config['radius_of_pick_to_average'], 
+            config['threshold'], config['plot_flag'], True
+        )
+    else:
+        print("No file selected. Exiting.")
