@@ -28,7 +28,7 @@ import glob
 
 # ================ MATPLOTLIB CONFIGURATION ================
 cmap = plt.cm.get_cmap('viridis')
-bkg_color = cmap(0)
+bkg_color = [0.1, 0.1, 0.1]
 
 
 def setup_step2_folders(main_folder, method_name):
