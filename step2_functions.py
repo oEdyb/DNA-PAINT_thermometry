@@ -453,5 +453,3 @@ def process_position_averaging(pick_trace, photons_of_picked, bkg_of_picked, exp
             print('Position averaging failed, using raw localizations')
     
     return x_position_of_picked, y_position_of_picked, frame_of_picked, photons_of_picked
-
-        plt.close()
