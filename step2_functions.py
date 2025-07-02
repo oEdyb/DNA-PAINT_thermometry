@@ -398,4 +398,60 @@ def plot_distance_matrices(matrix_distance, matrix_std_dev, total_peaks_found, p
         figure_name = f'matrix_std_dev_{pick_id:02d}'
         figure_path = os.path.join(aux_folder, f'{figure_name}.png')
         plt.savefig(figure_path, dpi=100, bbox_inches='tight')
+
+def process_position_averaging(pick_trace, photons_of_picked, bkg_of_picked, exp_time, 
+                              x_position_of_picked_raw, y_position_of_picked_raw, frame_of_picked, 
+                              pick_id, verbose_flag=False):
+    """Process position averaging for binding events in the averaging method."""
+    # Set parameters for binding event detection
+    photons_threshold = np.mean(photons_of_picked) * 0.1  # Simple threshold
+    background_level = np.mean(bkg_of_picked)
+    mask_level = 1  # Simple masking
+    mask_singles = False
+    
+    # Get averaged positions for binding events
+    tau_results = calculate_tau_on_times_average(
+        pick_trace, photons_threshold, background_level, exp_time,
+        mask_level, mask_singles, False, pick_id,  # verbose_flag=False
+        x_position_of_picked_raw, y_position_of_picked_raw, frame_of_picked
+    )
+    
+    # Extract averaged positions from results
+    if tau_results[0] is not False and len(tau_results) >= 14:
+        avg_x_positions = tau_results[12]  # average_x_positions
+        avg_y_positions = tau_results[13]  # average_y_positions
+        
+        # Filter out NaN values
+        valid_mask = ~(np.isnan(avg_x_positions) | np.isnan(avg_y_positions))
+        if np.any(valid_mask):
+            x_position_of_picked = avg_x_positions[valid_mask]
+            y_position_of_picked = avg_y_positions[valid_mask]
+            
+            # Create corresponding frame and photon data for averaged positions
+            # Use the start times from the binding events
+            binding_start_times = tau_results[3]  # start_time
+            valid_start_times = binding_start_times[valid_mask]
+            frame_of_picked = (valid_start_times / exp_time).astype(int)
+            
+            # Use sum photons for each event instead of individual photons
+            sum_photons_events = tau_results[6]  # sum_photons
+            photons_of_picked = sum_photons_events[valid_mask]
+            
+            if verbose_flag:
+                print(f'Using {len(x_position_of_picked)} averaged positions from {len(x_position_of_picked_raw)} raw localizations')
+        else:
+            # Fall back to raw data if no valid averaged positions
+            x_position_of_picked = x_position_of_picked_raw
+            y_position_of_picked = y_position_of_picked_raw
+            if verbose_flag:
+                print('No valid averaged positions found, using raw localizations')
+    else:
+        # Fall back to raw data if averaging failed
+        x_position_of_picked = x_position_of_picked_raw
+        y_position_of_picked = y_position_of_picked_raw
+        if verbose_flag:
+            print('Position averaging failed, using raw localizations')
+    
+    return x_position_of_picked, y_position_of_picked, frame_of_picked, photons_of_picked
+
         plt.close()
