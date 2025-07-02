@@ -50,6 +50,10 @@ import tkinter.filedialog as fd
 import re
 from auxiliary_functions import detect_peaks, distance, fit_linear, \
     perpendicular_distance, manage_save_directory, plot_vs_time_with_hist, update_pkl
+from step2_functions import (setup_step2_folders, cleanup_existing_traces, load_step2_data, 
+                            detect_peaks_adaptive, calculate_binding_site_stats, process_binding_site_traces,
+                            calculate_distance_matrices, plot_pick_time_series, plot_scatter_with_np,
+                            plot_fine_2d_image, plot_coarse_and_binary_images, plot_distance_matrices)
 from sklearn.mixture import GaussianMixture
 import time
 from auxiliary_functions_gaussian import plot_gaussian_2d
@@ -76,91 +80,36 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
     #print('Total time %.1f min' % total_time_min)
         
     # ================ CREATE FOLDER STRUCTURE FOR SAVING DATA ================
-    # Create step2 folder structure with method-specific separation
     # working_folder is .../analysis/step1/data, need to go back to main experiment folder
     main_folder = os.path.dirname(os.path.dirname(os.path.dirname(working_folder)))  # Go back to main experiment folder
-    analysis_folder = os.path.join(main_folder, 'analysis')
     
-    # Create method-specific subfolders to prevent file mixing
-    method_subfolder = 'original_method'  # This is the original method
-    step2_base_folder = manage_save_directory(analysis_folder, 'step2')
-    step2_method_folder = manage_save_directory(step2_base_folder, method_subfolder)
-    
-    figures_folder = manage_save_directory(step2_method_folder, 'figures')
-    figures_per_pick_folder = manage_save_directory(figures_folder, 'per_pick')
-    data_folder = manage_save_directory(step2_method_folder, 'data')
-    traces_per_pick_folder = manage_save_directory(data_folder, 'traces')
-    traces_per_site_folder = manage_save_directory(traces_per_pick_folder, 'traces_per_site')
-    kinetics_folder = manage_save_directory(data_folder, 'kinetics_data')
-    gaussian_folder = manage_save_directory(kinetics_folder, 'gaussian_data')
+    folders = setup_step2_folders(main_folder, 'original_method')
+    figures_folder = folders['figures_folder']
+    figures_per_pick_folder = folders['figures_per_pick_folder']
+    data_folder = folders['data_folder']
+    traces_per_pick_folder = folders['traces_per_pick_folder']
+    traces_per_site_folder = folders['traces_per_site_folder']
+    kinetics_folder = folders['kinetics_folder']
+    gaussian_folder = folders['gaussian_folder']
 
     # ================ CLEAN UP EXISTING TRACE FILES ================
-    if os.path.exists(traces_per_site_folder):
-        for f in os.listdir(traces_per_site_folder):
-            file_path = os.path.join(traces_per_site_folder, f)  # Combine directory path and file name
-            if os.path.isfile(file_path):  # Ensure it's a file (not a directory)
-                os.remove(file_path)  # Remove the file
-            else:
-                print(f"{file_path} is not a file, skipping.")
+    cleanup_existing_traces(traces_per_site_folder)
 
-    # ================ LIST AND FILTER INPUT FILES ================
-    list_of_files = os.listdir(working_folder)
-    list_of_files = [f for f in list_of_files if re.search('.dat', f)]
-    list_of_files.sort()
-    if NP_flag:
-        list_of_files_origami = [f for f in list_of_files if re.search('NP_subtracted',f)]
-        list_of_files_NP = [f for f in list_of_files if re.search('raw',f)]
-    else:
-        list_of_files_origami = list_of_files
-    
-    ##############################################################################
     # ================ LOAD INPUT DATA ================
+    data = load_step2_data(working_folder, NP_flag, pixel_size)
     
-    # frame number, used for time estimation
-    frame_file = [f for f in list_of_files_origami if re.search('_frame',f)][0]
-    frame_filepath = os.path.join(working_folder, frame_file)
-    frame = np.loadtxt(frame_filepath)
+    frame = data['frame']
+    photons = data['photons']
+    bkg = data['bkg']
+    x = data['x']
+    y = data['y']
+    pick_list = data['pick_list']
     
-    # photons
-    photons_file = [f for f in list_of_files_origami if re.search('_photons',f)][0]
-    photons_filepath = os.path.join(working_folder, photons_file)
-    photons = np.loadtxt(photons_filepath)
+    # Extract NP data if available
     if NP_flag:
-        photons_file_NP = [f for f in list_of_files_NP if re.search('_photons', f)][0]
-        photons_filepath_NP = os.path.join(working_folder, photons_file_NP)
-        photons = np.loadtxt(photons_filepath_NP)
-
-    
-    # bkg
-    bkg_file = [f for f in list_of_files_origami if re.search('_bkg',f)][0]
-    bkg_filepath = os.path.join(working_folder, bkg_file)
-    bkg = np.loadtxt(bkg_filepath)
-    
-    # xy positions
-    # origami
-    position_file = [f for f in list_of_files_origami if re.search('_xy',f)][0]
-    position_filepath = os.path.join(working_folder, position_file)
-    position = np.loadtxt(position_filepath)
-    x = position[:,0]*pixel_size
-    y = position[:,1]*pixel_size
-    # NP
-    if NP_flag:
-        position_file_NP = [f for f in list_of_files_NP if re.search('_xy',f)][0]
-        position_filepath_NP = os.path.join(working_folder, position_file_NP)
-        xy_NP = np.loadtxt(position_filepath_NP)
-        x_NP = xy_NP[:,0]*pixel_size
-        y_NP = xy_NP[:,1]*pixel_size
-    
-    # number of pick
-    # origami
-    pick_file = [f for f in list_of_files_origami if re.search('_pick_number',f)][0]
-    pick_filepath = os.path.join(working_folder, pick_file)
-    pick_list = np.loadtxt(pick_filepath)
-    # NP
-    if NP_flag:
-        pick_file_NP = [f for f in list_of_files_NP if re.search('_pick_number',f)][0]
-        pick_filepath_NP = os.path.join(working_folder, pick_file_NP)
-        pick_list_NP = np.loadtxt(pick_filepath_NP)
+        x_NP = data.get('x_NP')
+        y_NP = data.get('y_NP')
+        pick_list_NP = data.get('pick_list_NP')
     
     ##############################################################################
     
@@ -229,40 +178,12 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
         x_hist_centers = x_hist[:-1] + x_hist_step/2
         y_hist_centers = y_hist[:-1] + y_hist_step/2
         
-        # ================ PEAK DETECTION INITIALIZATION ================
-        # Initialize variables for peak detection
-        total_peaks_found = 0
-        threshold_COARSE = th
-        bins_COARSE = 1 if docking_sites == 1 else 20
-        docking_sites_temp = docking_sites
-        site_goal = docking_sites
-        z_hist_COARSE = None
+        # ================ PEAK DETECTION ================
+        peak_coords, total_peaks_found, z_hist_COARSE, x_hist_COARSE, y_hist_COARSE, detected_peaks, index_peaks = detect_peaks_adaptive(
+            x_position_of_picked, y_position_of_picked, hist_bounds, docking_sites, th
+        )
         
-        # ================ ADAPTIVE PEAK DETECTION LOOP ================
-        while total_peaks_found != site_goal:
-            if docking_sites_temp == docking_sites - 1 or total_peaks_found == docking_sites - 1:
-                docking_sites_temp = docking_sites - 1
-                if total_peaks_found == docking_sites - 1:
-                    break
-            
-            # Make COARSE 2D histogram - only once per iteration
-            z_hist_COARSE, x_hist_COARSE, y_hist_COARSE = np.histogram2d(
-                x_position_of_picked, y_position_of_picked, 
-                bins=bins_COARSE, range=hist_bounds, density=True
-            )
-            z_hist_COARSE = z_hist_COARSE.T
-            z_hist_COARSE = np.where(z_hist_COARSE < threshold_COARSE, 0, z_hist_COARSE)
-            
-            # Peak detection
-            detected_peaks = detect_peaks(z_hist_COARSE)
-            index_peaks = np.where(detected_peaks == True)
-            total_peaks_found = len(index_peaks[0])
-            
-            threshold_COARSE += 5
-            if threshold_COARSE > 5000:
-                break
-                
-        # ================ VERIFY PEAK DETECTION RESULTS ================
+        docking_sites_temp = docking_sites if total_peaks_found == docking_sites else docking_sites - 1
         peaks_flag = total_peaks_found > 0
         
         # ================ INITIALIZE BINDING SITE ARRAYS ================
