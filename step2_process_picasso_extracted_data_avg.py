@@ -95,64 +95,21 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
     # ================ CLEAN UP EXISTING TRACE FILES ================
     cleanup_existing_traces(traces_per_site_folder)
 
-    # ================ LIST AND FILTER INPUT FILES ================
-    list_of_files = os.listdir(working_folder)
-    list_of_files = [f for f in list_of_files if re.search('.dat', f)]
-    list_of_files.sort()
-    if NP_flag:
-        list_of_files_origami = [f for f in list_of_files if re.search('NP_subtracted',f)]
-        list_of_files_NP = [f for f in list_of_files if re.search('raw',f)]
-    else:
-        list_of_files_origami = list_of_files
-    
-    ##############################################################################
     # ================ LOAD INPUT DATA ================
+    data = load_step2_data(working_folder, NP_flag, pixel_size)
     
-    # frame number, used for time estimation
-    frame_file = [f for f in list_of_files_origami if re.search('_frame',f)][0]
-    frame_filepath = os.path.join(working_folder, frame_file)
-    frame = np.loadtxt(frame_filepath)
+    frame = data['frame']
+    photons = data['photons']
+    bkg = data['bkg']
+    x = data['x']
+    y = data['y']
+    pick_list = data['pick_list']
     
-    # photons
-    photons_file = [f for f in list_of_files_origami if re.search('_photons',f)][0]
-    photons_filepath = os.path.join(working_folder, photons_file)
-    photons = np.loadtxt(photons_filepath)
+    # Extract NP data if available
     if NP_flag:
-        photons_file_NP = [f for f in list_of_files_NP if re.search('_photons', f)][0]
-        photons_filepath_NP = os.path.join(working_folder, photons_file_NP)
-        photons = np.loadtxt(photons_filepath_NP)
-
-    
-    # bkg
-    bkg_file = [f for f in list_of_files_origami if re.search('_bkg',f)][0]
-    bkg_filepath = os.path.join(working_folder, bkg_file)
-    bkg = np.loadtxt(bkg_filepath)
-    
-    # xy positions
-    # origami
-    position_file = [f for f in list_of_files_origami if re.search('_xy',f)][0]
-    position_filepath = os.path.join(working_folder, position_file)
-    position = np.loadtxt(position_filepath)
-    x = position[:,0]*pixel_size
-    y = position[:,1]*pixel_size
-    # NP
-    if NP_flag:
-        position_file_NP = [f for f in list_of_files_NP if re.search('_xy',f)][0]
-        position_filepath_NP = os.path.join(working_folder, position_file_NP)
-        xy_NP = np.loadtxt(position_filepath_NP)
-        x_NP = xy_NP[:,0]*pixel_size
-        y_NP = xy_NP[:,1]*pixel_size
-    
-    # number of pick
-    # origami
-    pick_file = [f for f in list_of_files_origami if re.search('_pick_number',f)][0]
-    pick_filepath = os.path.join(working_folder, pick_file)
-    pick_list = np.loadtxt(pick_filepath)
-    # NP
-    if NP_flag:
-        pick_file_NP = [f for f in list_of_files_NP if re.search('_pick_number',f)][0]
-        pick_filepath_NP = os.path.join(working_folder, pick_file_NP)
-        pick_list_NP = np.loadtxt(pick_filepath_NP)
+        x_NP = data.get('x_NP')
+        y_NP = data.get('y_NP')
+        pick_list_NP = data.get('pick_list_NP')
     
     ##############################################################################
     
