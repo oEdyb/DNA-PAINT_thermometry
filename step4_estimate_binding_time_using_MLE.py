@@ -172,42 +172,18 @@ def find_best_tau_using_MLE(full_filepath, rango, exp_time, initial_params, \
                             opt_display_flag, factor, verbose_flag, figures_folder, plot_name, sample_data = None, plot_flag=False):
     # factor is to be used in case you're estimating tau_off which is significantly
     # larger than tau_on, typically
+    from step4_functions import (load_sample_data, setup_mle_optimization, 
+                                perform_mle_optimization, calculate_parameter_errors,
+                                prepare_histogram_data, plot_mle_histogram, 
+                                plot_mle_paper_figure, compile_mle_results, print_mle_summary)
 
     # ================ PREPARE INPUT DATA ================
     rango = factor*np.array(rango)
-    # load data
-    if sample_data is not None:
-        sample = sample_data
-    else:
-        sample = np.loadtxt(full_filepath)
-    # numerical approximation of the log_ML function using scipy.optimize
+    sample = load_sample_data(full_filepath, sample_data)
     st = time.time()
 
     # ================ SET OPTIMIZATION PARAMETERS ================
-    # if hyperexponential define bounds and initial params for two exponential
-    # otherwise set them for a single exponential
-    if hyper_exponential_flag:
-        # bounds
-        tau_short_lower_bound = 0.01
-        tau_short_upper_bound = np.inf
-        ratio_lower_bound = 0
-        ratio_upper_bound = 100
-        # initial parameters, input of the minimizer
-        [tau_long_init, tau_short_init, set_ratio] = initial_params
-    else:
-        # tau_short_lower_bound = 1e-4
-        # tau_short_upper_bound = 1e-3
-        ratio_lower_bound = 0
-        ratio_upper_bound = np.inf
-        tau_short_lower_bound = 0
-        tau_short_upper_bound = np.inf
-        # ratio_lower_bound = 0
-        # ratio_upper_bound = 100
-        tau_long_init = initial_params[0]
-        tau_short_init = 1e3 # not relevant
-        set_ratio = initial_params[2] # initial amplitude
-        bnds_one_param = opt.Bounds([0], \
-                          [np.inf])
+    bounds, initial_guess, constraints = setup_mle_optimization(hyper_exponential_flag, initial_params, factor)
 
         # numerical approximation of the log_ML function
     # problem: hyperexponential/monoexponential
@@ -234,79 +210,15 @@ def find_best_tau_using_MLE(full_filepath, rango, exp_time, initial_params, \
     #                 log_likelihood_matrix[i,j] = log_likelihood_mono_with_error(theta_param, sample)
     # log_log_likelihood_matrix = np.log(log_likelihood_matrix)
     
-    # ================ PREPARE OPTIMIZATION PROCESS ================
-    # before plotting the MLE map === Minimize!!!
-    # prepare function to store points the method pass through
-    road_to_convergence = list()
-    road_to_convergence.append(initial_params)
-    def callback_fun_trust(X, log_ouput):
-        road_to_convergence.append(list(X))
-        return 
-    def callback_fun(X):
-        road_to_convergence.append(list(X))
-        return 
-    # define bounds of the minimization problem (any bounded method)
-    # TODO: Potential problem with the bounds here.
-    bnds = opt.Bounds([0, tau_short_lower_bound, ratio_lower_bound], \
-                      [np.inf, tau_short_upper_bound, np.inf]) # [lower bound array], [upper bound array]
-    
-    # now minimize
-    if verbose_flag:
-        print('Optimization process started...')
-    ################# constrained and bounded methods
-    
-    # ================ DEFINE OPTIMIZATION CONSTRAINTS ================
-    # define constraint of the minimization problem (for trust-constr method)
-    # that is real_binding_time > short_on_time
-    constr_array = np.array([1, -1, 0])
-    constr = opt.LinearConstraint(constr_array, 0, np.inf, keep_feasible = True)
-    sample = sample[~np.isnan(sample)]
-
     # ================ PERFORM MLE OPTIMIZATION ================
-    if hyper_exponential_flag:
-        out_estimator = opt.minimize(log_likelihood_hyper_with_error, 
-                                    initial_params, 
-                                    args = (sample), 
-                                    method = 'trust-constr',
-                                    bounds = bnds,
-                                    constraints = constr,
-                                    callback = callback_fun_trust,
-                                    options = {'maxiter':2000, 
-                                                'xtol':1e-16,
-                                                'gtol': 1e-16,
-                                                'disp':opt_display_flag})
-    else:
-        out_estimator = opt.minimize(log_likelihood_mono_with_error,
-                                    initial_params,
-                                    args = (sample),
-                                    method = 'trust-constr',
-                                    bounds = bnds,
-                                    # hessp= lambda x, p, *args: np.zeros(shape=len(x)),
-                                    constraints=constr,
-                                    callback = callback_fun_trust,
-                                    options = {'maxiter':2000,
-                                                'xtol':1e-16,
-                                                'gtol': 1e-16,
-                                                'disp':opt_display_flag})
-
-        # out_estimator = opt.minimize(log_likelihood_mono_with_error_one_param,
-        #                             tau_long_init,
-        #                             args = (sample),
-        #                             method = 'trust-constr',
-        #                             # hessp= lambda x, p, *args: np.zeros(shape=len(x)),
-        #                             bounds = bnds_one_param,
-        #                             callback = callback_fun_trust,
-        #                             options = {'maxiter':2000,
-        #                                         'xtol':1e-16,
-        #                                         'gtol': 1e-16,
-        #                                         'disp':opt_display_flag})
-
+    road_to_convergence = []
+    road_to_convergence.append(initial_params)
+    out_estimator = perform_mle_optimization(sample, hyper_exponential_flag, bounds, 
+                                           initial_guess, constraints, opt_display_flag, 
+                                           road_to_convergence)
     road_to_convergence = np.array(road_to_convergence)
-    if verbose_flag:
-        print(out_estimator)
     
     # ================ EXTRACT OPTIMIZED PARAMETERS ================
-    # assign variables
     tau_long_MLE = out_estimator.x[0]
     tau_short_MLE = out_estimator.x[1]
     ratio_MLE = out_estimator.x[2]
@@ -348,20 +260,9 @@ def find_best_tau_using_MLE(full_filepath, rango, exp_time, initial_params, \
     # cbar.ax.set_title('log( -log( likelihood ) )', fontsize = 13)
     
     # ================ PREPARE HISTOGRAM FOR VISUALIZATION ================
-    # show how the solution fits the histogram
-    # prepare histogram binning
-    bin_size = factor*exp_time*2 #factor 2 is arbitrary for PAPER
-    # rango = [0, max(sample)]
-    number_of_bins = int((rango[1] - rango[0])/bin_size)
-    counts, bin_edges = np.histogram(sample, bins=number_of_bins, range=rango)
-    # counts, bin_edges = np.histogram(sample, bins=number_of_bins, range=rango)
-    integral = np.sum(counts*np.diff(bin_edges))
-    counts_norm = counts/integral
-    bin_center = bin_edges[1:] - bin_size/2
-    if hyper_exponential_flag:
-        counts_norm_MLE = hyperexp_func_with_error(bin_center, tau_long_MLE, tau_short_MLE, ratio_MLE)
-    else:
-        counts_norm_MLE = monoexp_func(bin_center, tau_long_MLE, tau_short_MLE, ratio_MLE)
+    bin_center, counts_norm, counts_norm_MLE, bin_size = prepare_histogram_data(
+        sample, rango, exp_time, factor, hyper_exponential_flag, 
+        tau_long_MLE, tau_short_MLE, ratio_MLE)
 
 
     # ================ GENERATE PLOTS OF MLE RESULTS ================
@@ -539,39 +440,23 @@ def find_best_tau_using_MLE(full_filepath, rango, exp_time, initial_params, \
     ########################################################################
     
     # ================ COMPILE RESULTS ================
-    # make solutions array
-    if hyper_exponential_flag:
-        solutions = np.array([[tau_long_MLE, tau_long_MLE_error_plus, tau_long_MLE_error_minus],
-                          [tau_short_MLE, tau_short_MLE_error_plus, tau_short_MLE_error_minus],
-                          [ratio_MLE, ratio_MLE_error_plus, ratio_MLE_error_minus]])
-    else:
-        solutions = np.array([[tau_long_MLE, tau_long_MLE_error_plus, tau_long_MLE_error_minus],
-                            [0, 0, 0],
-                            [ratio_MLE, ratio_MLE_error_plus, ratio_MLE_error_minus]])
+    solutions = compile_mle_results(hyper_exponential_flag, tau_long_MLE, tau_short_MLE, ratio_MLE,
+                                   tau_long_MLE_error_plus, tau_long_MLE_error_minus,
+                                   tau_short_MLE_error_plus if hyper_exponential_flag else 0,
+                                   tau_short_MLE_error_minus if hyper_exponential_flag else 0,
+                                   ratio_MLE_error_plus, ratio_MLE_error_minus)
 
-    # ================ OUTPUT EXECUTION TIME ================
+    # ================ OUTPUT EXECUTION TIME AND SUMMARY ================
     et = time.time()
     elapsed_time = et - st
     if verbose_flag:
         print('Execution time of minimizer:', elapsed_time, 'seconds')
-
-        # ================ OUTPUT SUMMARY INFORMATION ================
-        # Summary of STEP 4
-        print("\n------ Summary of STEP 4 ------")
-        print(f"MLE Fit Value: tau_long = {tau_long_MLE:.3f} s")
-        print(f"Error on tau_long = +{tau_long_MLE_error_plus:.3f} / -{tau_long_MLE_error_minus:.3f} s")
-        if hyper_exponential_flag:
-            print(f"Initial Values: ratio = {set_ratio}, tau_short = {tau_short_init}")
-            print(f"MLE Fit Values: tau_short = {tau_short_MLE:.3f} s, ratio = {ratio_MLE:.4f}")
-            print(f"MLE Amplitude: tau_short amplitude = {tau_short_amplitude:.3f}")
-            print(f"Errors on tau_short = +{tau_short_MLE_error_plus:.3f} / -{tau_short_MLE_error_minus:.3f} s")
-            print(f"Errors on ratio = +{ratio_MLE_error_plus:.3f} / -{ratio_MLE_error_minus:.3f}")
-
-
-        print(f"Histogram bin size: {bin_size}")
-
-
-        print("Data analysis and optimization completed. Results and figures saved.")
+        print_mle_summary(hyper_exponential_flag, tau_long_MLE, tau_short_MLE, ratio_MLE,
+                         tau_long_MLE_error_plus, tau_long_MLE_error_minus,
+                         tau_short_MLE_error_plus if hyper_exponential_flag else 0,
+                         tau_short_MLE_error_minus if hyper_exponential_flag else 0,
+                         ratio_MLE_error_plus, ratio_MLE_error_minus,
+                         tau_short_amplitude, bin_size, initial_params)
     ########################################################################
     
     # ================ ADDITIONAL LIKELIHOOD ANALYSIS (COMMENTED) ================

@@ -453,3 +453,117 @@ def process_position_averaging(pick_trace, photons_of_picked, bkg_of_picked, exp
             print('Position averaging failed, using raw localizations')
     
     return x_position_of_picked, y_position_of_picked, frame_of_picked, photons_of_picked
+
+
+def plot_relative_positions(positions_concat_NP, positions_concat_origami, figures_folder):
+    """Plot relative positions for NP and binding sites."""
+    # Plot NP relative positions
+    number_of_bins = 16
+    hist_range = [25, 160]
+    bin_size = (hist_range[-1] - hist_range[0])/number_of_bins
+    position_bins, bin_edges = np.histogram(positions_concat_NP, bins=number_of_bins, 
+                                            range=hist_range)
+    bin_centers = bin_edges[:-1] + bin_size/2
+    plt.figure()
+    plt.bar(bin_centers, position_bins, width=0.8*bin_size, align='center')
+    plt.xlabel('Position (nm)')
+    plt.ylabel('Counts')
+    figure_name = 'relative_positions_NP_sites'
+    figure_path = os.path.join(figures_folder, '%s.png' % figure_name)
+    plt.savefig(figure_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    # Plot binding site relative positions
+    position_bins, bin_edges = np.histogram(positions_concat_origami, bins=number_of_bins, 
+                                            range=hist_range)
+    bin_centers = bin_edges[:-1] + bin_size/2
+    plt.figure()
+    plt.bar(bin_centers, position_bins, width=0.8*bin_size, align='center')
+    plt.xlabel('Position (nm)')
+    plt.ylabel('Counts')
+    figure_name = 'relative_positions_binding_sites'
+    figure_path = os.path.join(figures_folder, '%s.png' % figure_name)
+    plt.savefig(figure_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+
+def plot_global_time_series(locs_of_picked_vs_time, bin_centers_minutes, total_time_min, 
+                           total_number_of_picks, figures_folder):
+    """Plot global time series analysis."""
+    sum_of_locs_of_picked_vs_time = np.sum(locs_of_picked_vs_time, axis=0)
+    plt.figure()
+    plt.step(bin_centers_minutes, sum_of_locs_of_picked_vs_time, where='mid')
+    plt.xlabel('Time (min)')
+    plt.ylabel('Locs')
+    x_limit = [0, total_time_min]
+    plt.xlim(x_limit)
+    ax = plt.gca()
+    bin_size_seconds = (bin_centers_minutes[1] - bin_centers_minutes[0]) * 60 if len(bin_centers_minutes) > 1 else 10
+    ax.set_title('Sum of localizations vs time. Binning time %d s. %d picks. ' 
+                 % (bin_size_seconds, total_number_of_picks))
+    figure_name = 'locs_vs_time_all'
+    figure_path = os.path.join(figures_folder, '%s.png' % figure_name)
+    plt.savefig(figure_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+
+def save_kinetics_data(photons_concat, time_concat, kinetics_folder):
+    """Save kinetics data to files."""
+    new_filename = 'PHOTONS.dat'
+    new_filepath = os.path.join(kinetics_folder, new_filename)
+    np.savetxt(new_filepath, photons_concat)
+
+    new_filename = 'TIME.dat'
+    new_filepath = os.path.join(kinetics_folder, new_filename)
+    np.savetxt(new_filepath, time_concat)
+
+
+def plot_background_analysis(bkg_concat, time_concat, figures_folder):
+    """Plot background signal analysis."""
+    ax = plot_vs_time_with_hist(bkg_concat, time_concat, order=2)
+    ax.set_xlabel('Time (min)')
+    ax.set_ylabel('Total background [photons]')
+    ax.set_title('Total background received vs time.')
+    figure_name = 'bkg_vs_time'
+    figure_path = os.path.join(figures_folder, '%s.png' % figure_name)
+    plt.savefig(figure_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+
+def plot_site_photon_distributions(all_traces_per_site, figures_folder):
+    """Plot site-specific photon distributions."""
+    keys = sorted(all_traces_per_site.keys(), key=float)
+    colors = ['red', 'green', 'blue', 'purple', 'orange', 'black', 'gray']
+    line_styles = ['-']*10
+
+    fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+
+    try:
+        global_min = min([data.min() for data in all_traces_per_site.values()])
+        global_max = max([data.max() for data in all_traces_per_site.values()])
+
+        x_lim_lower = global_min - 1
+        x_lim_upper = global_max + 1
+
+        for key, color, line_style in zip(keys, colors, line_styles):
+            data = all_traces_per_site[key]
+            bins = int(np.ceil(np.sqrt(len(data))))
+            print(key, len(data))
+            ax.hist(data, bins=bins, label=f'{key}', histtype='step', density=False, 
+                   color=color, linestyle=line_style, linewidth=1, alpha=0.6)
+
+        ax.set_xlim(x_lim_lower, x_lim_upper)
+        ax.set_xlabel("Photons", fontsize=24)
+        ax.set_ylabel("Counts", fontsize=24)
+        plt.xticks(fontsize=20)
+        plt.yticks(fontsize=20)
+        ax.legend(title='Binding site')
+        ax.set_title("Binding site photon distributions", fontsize=24)
+        plt.tight_layout()
+        figure_name = 'binding_site_photon_distributions'
+        figure_path = os.path.join(figures_folder, '%s.png' % figure_name)
+        plt.savefig(figure_path, dpi=300, bbox_inches='tight')
+        plt.close()
+    except Exception as e:
+        print(f"Error plotting site photon distributions: {e}")
+        plt.close()

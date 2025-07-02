@@ -749,87 +749,29 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
                 double_events_all = np.append(double_events_all, double_events_pick)
 
     # ================ GLOBAL ANALYSIS AND VISUALIZATION ================
-    # ================ PLOT NP RELATIVE POSITIONS ================
-    number_of_bins = 16
-    hist_range = [25, 160]
-    bin_size = (hist_range[-1] - hist_range[0])/number_of_bins
-    position_bins, bin_edges = np.histogram(positions_concat_NP, bins = number_of_bins, \
-                                            range = hist_range)
-    bin_centers = bin_edges[:-1] + bin_size/2
-    plt.figure()
-    plt.bar(bin_centers, position_bins, width = 0.8*bin_size, align = 'center')
-    plt.xlabel('Position (nm)')
-    plt.ylabel('Counts')
-    figure_name = 'relative_positions_NP_sites'
-    figure_path = os.path.join(figures_folder, '%s.png' % figure_name)
-    plt.savefig(figure_path, dpi = 300, bbox_inches='tight')
-    plt.close()
-    
-    # ================ PLOT BINDING SITE RELATIVE POSITIONS ================
-    number_of_bins = 16
-    hist_range = [25, 160]
-    bin_size = (hist_range[-1] - hist_range[0])/number_of_bins
-    #print('\nRelative position between binding sites bin size', bin_size)
-    position_bins, bin_edges = np.histogram(positions_concat_origami, bins = number_of_bins, \
-                                            range = hist_range)
-    bin_centers = bin_edges[:-1] + bin_size/2
-    plt.figure()
-    plt.bar(bin_centers, position_bins, width = 0.8*bin_size, align = 'center')
-    plt.xlabel('Position (nm)')
-    plt.ylabel('Counts')
-    figure_name = 'relative_positions_binding_sites'
-    figure_path = os.path.join(figures_folder, '%s.png' % figure_name)
-    plt.savefig(figure_path, dpi = 300, bbox_inches='tight')
-    plt.close()
+    from step2_functions import plot_relative_positions
+    plot_relative_positions(positions_concat_NP, positions_concat_origami, figures_folder)
     
     # ================ PLOT GLOBAL TIME SERIES ANALYSIS ================
-    # plot global variables, all the picks of the video
     time_concat = frame_concat*exp_time/60
-    
-    ## LOCS
-    sum_of_locs_of_picked_vs_time = np.sum(locs_of_picked_vs_time, axis=0)
-    plt.figure()
-    plt.step(bin_centers_minutes, sum_of_locs_of_picked_vs_time, where = 'mid')
-    plt.xlabel('Time (min)')
-    plt.ylabel('Locs')
-    x_limit = [0, total_time_min]
-    plt.xlim(x_limit)
-    ax = plt.gca()
-    ax.set_title('Sum of localizations vs time. Binning time %d s. %d picks. ' \
-                 % ((bin_size*0.1), total_number_of_picks))
-    figure_name = 'locs_vs_time_all'
-    figure_path = os.path.join(figures_folder, '%s.png' % figure_name)
-    plt.savefig(figure_path, dpi = 300, bbox_inches='tight')
-    plt.close()
+    from step2_functions import plot_global_time_series
+    plot_global_time_series(locs_of_picked_vs_time, bin_centers_minutes, total_time_min, 
+                           total_number_of_picks, figures_folder)
 
     # ================ PROCESS TIME DATA ================
-    # Sorting time.
     index_concat = np.argsort(time_concat)
     ordered_time_concat = time_concat[index_concat]
 
-    # Print the sum of the photons.
     photons_sum = np.sum(photons_concat, axis=None)
     photons_mean = np.mean(photons_concat, axis=None)
 
     # ================ SAVE KINETICS DATA ================
-    new_filename = 'PHOTONS.dat'
-    new_filepath = os.path.join(kinetics_folder, new_filename)
-    np.savetxt(new_filepath, photons_concat)
-
-    new_filename = 'TIME.dat'
-    new_filepath = os.path.join(kinetics_folder, new_filename)
-    np.savetxt(new_filepath, time_concat)
+    from step2_functions import save_kinetics_data
+    save_kinetics_data(photons_concat, time_concat, kinetics_folder)
 
     # ================ PLOT BACKGROUND SIGNAL ================
-    ## BACKGROUND
-    ax = plot_vs_time_with_hist(bkg_concat, time_concat, order = 2)
-    ax.set_xlabel('Time (min)')
-    ax.set_ylabel('Total background [photons]')
-    ax.set_title('Total background received vs time.')
-    figure_name = 'bkg_vs_time'
-    figure_path = os.path.join(figures_folder, '%s.png' % figure_name)
-    plt.savefig(figure_path, dpi = 300, bbox_inches='tight')
-    plt.close()
+    from step2_functions import plot_background_analysis
+    plot_background_analysis(bkg_concat, time_concat, figures_folder)
 
     # ================ PLOT SITE-SPECIFIC PHOTON DISTRIBUTIONS ================
     # Sort the keys to ensure plotting in numerical order
