@@ -50,6 +50,10 @@ import tkinter.filedialog as fd
 import re
 from auxiliary_functions import detect_peaks, distance, fit_linear, \
     perpendicular_distance, manage_save_directory, plot_vs_time_with_hist, update_pkl
+from step2_functions import (setup_step2_folders, cleanup_existing_traces, load_step2_data, 
+                            detect_peaks_adaptive, calculate_binding_site_stats, process_binding_site_traces,
+                            calculate_distance_matrices, plot_pick_time_series, plot_scatter_with_np,
+                            plot_fine_2d_image, plot_coarse_and_binary_images, plot_distance_matrices)
 from sklearn.mixture import GaussianMixture
 import time
 from auxiliary_functions_gaussian import plot_gaussian_2d
@@ -76,91 +80,36 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
     #print('Total time %.1f min' % total_time_min)
         
     # ================ CREATE FOLDER STRUCTURE FOR SAVING DATA ================
-    # Create step2 folder structure with method-specific separation
     # working_folder is .../analysis/step1/data, need to go back to main experiment folder
     main_folder = os.path.dirname(os.path.dirname(os.path.dirname(working_folder)))  # Go back to main experiment folder
-    analysis_folder = os.path.join(main_folder, 'analysis')
     
-    # Create method-specific subfolders to prevent file mixing
-    method_subfolder = 'original_method'  # This is the original method
-    step2_base_folder = manage_save_directory(analysis_folder, 'step2')
-    step2_method_folder = manage_save_directory(step2_base_folder, method_subfolder)
-    
-    figures_folder = manage_save_directory(step2_method_folder, 'figures')
-    figures_per_pick_folder = manage_save_directory(figures_folder, 'per_pick')
-    data_folder = manage_save_directory(step2_method_folder, 'data')
-    traces_per_pick_folder = manage_save_directory(data_folder, 'traces')
-    traces_per_site_folder = manage_save_directory(traces_per_pick_folder, 'traces_per_site')
-    kinetics_folder = manage_save_directory(data_folder, 'kinetics_data')
-    gaussian_folder = manage_save_directory(kinetics_folder, 'gaussian_data')
+    folders = setup_step2_folders(main_folder, 'original_method')
+    figures_folder = folders['figures_folder']
+    figures_per_pick_folder = folders['figures_per_pick_folder']
+    data_folder = folders['data_folder']
+    traces_per_pick_folder = folders['traces_per_pick_folder']
+    traces_per_site_folder = folders['traces_per_site_folder']
+    kinetics_folder = folders['kinetics_folder']
+    gaussian_folder = folders['gaussian_folder']
 
     # ================ CLEAN UP EXISTING TRACE FILES ================
-    if os.path.exists(traces_per_site_folder):
-        for f in os.listdir(traces_per_site_folder):
-            file_path = os.path.join(traces_per_site_folder, f)  # Combine directory path and file name
-            if os.path.isfile(file_path):  # Ensure it's a file (not a directory)
-                os.remove(file_path)  # Remove the file
-            else:
-                print(f"{file_path} is not a file, skipping.")
+    cleanup_existing_traces(traces_per_site_folder)
 
-    # ================ LIST AND FILTER INPUT FILES ================
-    list_of_files = os.listdir(working_folder)
-    list_of_files = [f for f in list_of_files if re.search('.dat', f)]
-    list_of_files.sort()
-    if NP_flag:
-        list_of_files_origami = [f for f in list_of_files if re.search('NP_subtracted',f)]
-        list_of_files_NP = [f for f in list_of_files if re.search('raw',f)]
-    else:
-        list_of_files_origami = list_of_files
-    
-    ##############################################################################
     # ================ LOAD INPUT DATA ================
+    data = load_step2_data(working_folder, NP_flag, pixel_size)
     
-    # frame number, used for time estimation
-    frame_file = [f for f in list_of_files_origami if re.search('_frame',f)][0]
-    frame_filepath = os.path.join(working_folder, frame_file)
-    frame = np.loadtxt(frame_filepath)
+    frame = data['frame']
+    photons = data['photons']
+    bkg = data['bkg']
+    x = data['x']
+    y = data['y']
+    pick_list = data['pick_list']
     
-    # photons
-    photons_file = [f for f in list_of_files_origami if re.search('_photons',f)][0]
-    photons_filepath = os.path.join(working_folder, photons_file)
-    photons = np.loadtxt(photons_filepath)
+    # Extract NP data if available
     if NP_flag:
-        photons_file_NP = [f for f in list_of_files_NP if re.search('_photons', f)][0]
-        photons_filepath_NP = os.path.join(working_folder, photons_file_NP)
-        photons = np.loadtxt(photons_filepath_NP)
-
-    
-    # bkg
-    bkg_file = [f for f in list_of_files_origami if re.search('_bkg',f)][0]
-    bkg_filepath = os.path.join(working_folder, bkg_file)
-    bkg = np.loadtxt(bkg_filepath)
-    
-    # xy positions
-    # origami
-    position_file = [f for f in list_of_files_origami if re.search('_xy',f)][0]
-    position_filepath = os.path.join(working_folder, position_file)
-    position = np.loadtxt(position_filepath)
-    x = position[:,0]*pixel_size
-    y = position[:,1]*pixel_size
-    # NP
-    if NP_flag:
-        position_file_NP = [f for f in list_of_files_NP if re.search('_xy',f)][0]
-        position_filepath_NP = os.path.join(working_folder, position_file_NP)
-        xy_NP = np.loadtxt(position_filepath_NP)
-        x_NP = xy_NP[:,0]*pixel_size
-        y_NP = xy_NP[:,1]*pixel_size
-    
-    # number of pick
-    # origami
-    pick_file = [f for f in list_of_files_origami if re.search('_pick_number',f)][0]
-    pick_filepath = os.path.join(working_folder, pick_file)
-    pick_list = np.loadtxt(pick_filepath)
-    # NP
-    if NP_flag:
-        pick_file_NP = [f for f in list_of_files_NP if re.search('_pick_number',f)][0]
-        pick_filepath_NP = os.path.join(working_folder, pick_file_NP)
-        pick_list_NP = np.loadtxt(pick_filepath_NP)
+        x_NP = data.get('x_NP')
+        y_NP = data.get('y_NP')
+        pick_list_NP = data.get('pick_list_NP')
     
     ##############################################################################
     
@@ -229,40 +178,12 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
         x_hist_centers = x_hist[:-1] + x_hist_step/2
         y_hist_centers = y_hist[:-1] + y_hist_step/2
         
-        # ================ PEAK DETECTION INITIALIZATION ================
-        # Initialize variables for peak detection
-        total_peaks_found = 0
-        threshold_COARSE = th
-        bins_COARSE = 1 if docking_sites == 1 else 20
-        docking_sites_temp = docking_sites
-        site_goal = docking_sites
-        z_hist_COARSE = None
+        # ================ PEAK DETECTION ================
+        peak_coords, total_peaks_found, z_hist_COARSE, x_hist_COARSE, y_hist_COARSE, detected_peaks, index_peaks = detect_peaks_adaptive(
+            x_position_of_picked, y_position_of_picked, hist_bounds, docking_sites, th
+        )
         
-        # ================ ADAPTIVE PEAK DETECTION LOOP ================
-        while total_peaks_found != site_goal:
-            if docking_sites_temp == docking_sites - 1 or total_peaks_found == docking_sites - 1:
-                docking_sites_temp = docking_sites - 1
-                if total_peaks_found == docking_sites - 1:
-                    break
-            
-            # Make COARSE 2D histogram - only once per iteration
-            z_hist_COARSE, x_hist_COARSE, y_hist_COARSE = np.histogram2d(
-                x_position_of_picked, y_position_of_picked, 
-                bins=bins_COARSE, range=hist_bounds, density=True
-            )
-            z_hist_COARSE = z_hist_COARSE.T
-            z_hist_COARSE = np.where(z_hist_COARSE < threshold_COARSE, 0, z_hist_COARSE)
-            
-            # Peak detection
-            detected_peaks = detect_peaks(z_hist_COARSE)
-            index_peaks = np.where(detected_peaks == True)
-            total_peaks_found = len(index_peaks[0])
-            
-            threshold_COARSE += 5
-            if threshold_COARSE > 5000:
-                break
-                
-        # ================ VERIFY PEAK DETECTION RESULTS ================
+        docking_sites_temp = docking_sites if total_peaks_found == docking_sites else docking_sites - 1
         peaks_flag = total_peaks_found > 0
         
         # ================ INITIALIZE BINDING SITE ARRAYS ================
@@ -295,23 +216,18 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
                 x_peak, y_peak = peak_coords[j]
                 
                 # ================ FILTER LOCALIZATIONS BY DISTANCE ================
-                # Calculate distances once
                 d = np.sqrt((x_position_of_picked - x_peak)**2 + 
                            (y_position_of_picked - y_peak)**2)
                 
-                # Filter by radius
                 index_inside_radius = d < analysis_radius
                 x_position_filtered = x_position_of_picked[index_inside_radius]
                 y_position_filtered = y_position_of_picked[index_inside_radius]
                 
                 # ================ CALCULATE BINDING SITE STATISTICS ================
-                # Calculate stats
-                cm_binding_site_x = np.mean(x_position_filtered)
-                cm_binding_site_y = np.mean(y_position_filtered)
-                cm_std_dev_binding_site_x = np.std(x_position_filtered, ddof=1)
-                cm_std_dev_binding_site_y = np.std(y_position_filtered, ddof=1)
+                cm_binding_site_x, cm_binding_site_y, cm_std_dev_binding_site_x, cm_std_dev_binding_site_y = calculate_binding_site_stats(
+                    x_position_filtered, y_position_filtered
+                )
                 
-                # Append to arrays
                 cm_binding_sites_x = np.append(cm_binding_sites_x, cm_binding_site_x)
                 cm_binding_sites_y = np.append(cm_binding_sites_y, cm_binding_site_y)
                 cm_std_dev_binding_sites_x = np.append(cm_std_dev_binding_sites_x, cm_std_dev_binding_site_x)
@@ -394,42 +310,15 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
         
         # ================ CALCULATE DISTANCE MATRICES ================
         if peaks_flag:
-            # Initialize matrices
-            matrix_distance = np.zeros([total_peaks_found + 1, total_peaks_found + 1])
-            matrix_std_dev = np.zeros([total_peaks_found + 1, total_peaks_found + 1])
+            matrix_distance, matrix_std_dev, peak_distances, np_to_binding_distances = calculate_distance_matrices(
+                cm_binding_sites_x, cm_binding_sites_y, x_avg_NP, y_avg_NP, 
+                cm_std_dev_binding_sites_x, cm_std_dev_binding_sites_y, NP_flag
+            )
             
-            # NP to binding sites distances
             if NP_flag and peaks_flag:
-                # Vectorized distance calculation
-                np_to_binding_distances = np.sqrt(
-                    (cm_binding_sites_x - x_avg_NP)**2 + 
-                    (cm_binding_sites_y - y_avg_NP)**2) * 1e3
-                
-                matrix_distance[0, 1:] = np_to_binding_distances
-                matrix_distance[1:, 0] = np_to_binding_distances
-                matrix_std_dev[0, 0] = max(x_std_dev_NP, y_std_dev_NP) * 1e3
                 positions_concat_NP = np.append(positions_concat_NP, np_to_binding_distances)
             
-            # ================ CALCULATE BINDING SITE DISTANCES ================
-            # Binding site to binding site distances
-            peak_distances = np.array([])
-            for j in range(total_peaks_found):
-                x_binding_row = cm_binding_sites_x[j]
-                y_binding_row = cm_binding_sites_y[j]
-                matrix_std_dev[j + 1, j + 1] = max(
-                    cm_std_dev_binding_sites_x[j], cm_std_dev_binding_sites_y[j]) * 1e3
-                
-                for k in range(j + 1, total_peaks_found):
-                    x_binding_col = cm_binding_sites_x[k]
-                    y_binding_col = cm_binding_sites_y[k]
-                    distance_between_locs_CM = np.sqrt(
-                        (x_binding_col - x_binding_row)**2 + 
-                        (y_binding_col - y_binding_row)**2) * 1e3
-                    
-                    matrix_distance[j + 1, k + 1] = distance_between_locs_CM
-                    matrix_distance[k + 1, j + 1] = distance_between_locs_CM
-                    peak_distances = np.append(peak_distances, distance_between_locs_CM)
-                    positions_concat_origami = np.append(positions_concat_origami, distance_between_locs_CM)
+            positions_concat_origami = np.append(positions_concat_origami, peak_distances)
             
             # ================ LABEL BINDING SITES ================
             # Assigning peak labels using distances
@@ -480,65 +369,14 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
         
         # ================ GENERATE PICK PLOTS ================
         if plot_flag:
-            # Plot when the pick was bright vs time
-            plt.figure()
-            plt.step(bin_centers_minutes, locs_of_picked_vs_time[i,:], where='mid', label=f'Pick {i:04d}')
-            plt.xlabel('Time (min)')
-            plt.ylabel('Locs')
-            plt.ylim([0, 80])
-            ax = plt.gca()
-            ax.axvline(x=10, ymin=0, ymax=1, color='k', linewidth='2', linestyle='--')
-            ax.set_title(f'Number of locs per pick vs time. Bin size {bin_size*0.1/60:.1f} min')
-            aux_folder = manage_save_directory(figures_per_pick_folder, 'locs_vs_time_per_pick')
-            figure_name = f'locs_per_pick_vs_time_pick_{i:02d}'
-            figure_path = os.path.join(aux_folder, f'{figure_name}.png')
-            plt.savefig(figure_path, dpi=100, bbox_inches='tight')
-            plt.close()
+            plot_pick_time_series(bin_centers_minutes, locs_of_picked_vs_time[i,:], i, figures_per_pick_folder, bin_size)
             
             # ================ PLOT SCATTER WITH NP ================
             if peaks_flag:
-                # RAW scatter plot
-                plt.figure(100)
-                plt.scatter(x_position_of_picked, y_position_of_picked, color='C0', label='Fluorophore Emission', s=0.5)
-                
-                if NP_flag:
-                    plt.scatter(x_position_of_picked_NP, y_position_of_picked_NP, color='C1', s=0.5, alpha=0.2)
-                    plt.scatter(x_avg_NP, y_avg_NP, color='C1', label='NP Scattering', s=0.5, alpha=1)
-                    plt.plot(x_avg_NP, y_avg_NP, 'x', color='k', label='Center of NP')
-                    plt.legend(loc='upper left')
-                
-                plt.ylabel(r'y ($\mu$m)')
-                plt.xlabel(r'x ($\mu$m)')
-                plt.xlim(left=0)
-                plt.ylim(bottom=0)
-                plt.axis('square')
-                ax = plt.gca()
-                ax.set_title(f'Position of locs per pick. Pick {i:02d}')
-                aux_folder = manage_save_directory(figures_per_pick_folder, 'scatter_plots')
-                figure_name = f'xy_pick_scatter_NP_and_PAINT_{i:02d}'
-                figure_path = os.path.join(aux_folder, f'{figure_name}.png')
-                plt.savefig(figure_path, dpi=300, bbox_inches='tight')
-                plt.close()
-                
-                # ================ PLOT SCATTER WITH PAINT POINTS ================
-                plt.figure(2)
-                plt.plot(x_position_of_picked, y_position_of_picked, '.', color='C0', label='PAINT', linewidth=0.5)
-                
-                if NP_flag:
-                    plt.plot(x_avg_NP, y_avg_NP, 'o', markersize=10, markerfacecolor='C1', 
-                            markeredgecolor='k', label='NP')
-                    plt.legend(loc='upper left')
-                
-                plt.ylabel(r'y ($\mu$m)')
-                plt.xlabel(r'x ($\mu$m)')
-                plt.axis('square')
-                ax = plt.gca()
-                ax.set_title(f'Position of locs per pick. Pick {i:02d}')
-                aux_folder = manage_save_directory(figures_per_pick_folder, 'scatter_plots')
-                figure_name = f'xy_pick_scatter_PAINT_{i:02d}'
-                figure_path = os.path.join(aux_folder, f'{figure_name}.png')
-                plt.savefig(figure_path, dpi=300, bbox_inches='tight')
-                plt.close()
+                x_np_data = x_position_of_picked_NP if NP_flag else None
+                y_np_data = y_position_of_picked_NP if NP_flag else None
+                plot_scatter_with_np(x_position_of_picked, y_position_of_picked, x_np_data, y_np_data, 
+                                   x_avg_NP, y_avg_NP, NP_flag, i, figures_per_pick_folder)
                 
                 # ================ PLOT FINE 2D IMAGE ================
                 plt.figure(3)
