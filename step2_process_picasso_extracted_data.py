@@ -216,23 +216,18 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
                 x_peak, y_peak = peak_coords[j]
                 
                 # ================ FILTER LOCALIZATIONS BY DISTANCE ================
-                # Calculate distances once
                 d = np.sqrt((x_position_of_picked - x_peak)**2 + 
                            (y_position_of_picked - y_peak)**2)
                 
-                # Filter by radius
                 index_inside_radius = d < analysis_radius
                 x_position_filtered = x_position_of_picked[index_inside_radius]
                 y_position_filtered = y_position_of_picked[index_inside_radius]
                 
                 # ================ CALCULATE BINDING SITE STATISTICS ================
-                # Calculate stats
-                cm_binding_site_x = np.mean(x_position_filtered)
-                cm_binding_site_y = np.mean(y_position_filtered)
-                cm_std_dev_binding_site_x = np.std(x_position_filtered, ddof=1)
-                cm_std_dev_binding_site_y = np.std(y_position_filtered, ddof=1)
+                cm_binding_site_x, cm_binding_site_y, cm_std_dev_binding_site_x, cm_std_dev_binding_site_y = calculate_binding_site_stats(
+                    x_position_filtered, y_position_filtered
+                )
                 
-                # Append to arrays
                 cm_binding_sites_x = np.append(cm_binding_sites_x, cm_binding_site_x)
                 cm_binding_sites_y = np.append(cm_binding_sites_y, cm_binding_site_y)
                 cm_std_dev_binding_sites_x = np.append(cm_std_dev_binding_sites_x, cm_std_dev_binding_site_x)
@@ -315,42 +310,15 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
         
         # ================ CALCULATE DISTANCE MATRICES ================
         if peaks_flag:
-            # Initialize matrices
-            matrix_distance = np.zeros([total_peaks_found + 1, total_peaks_found + 1])
-            matrix_std_dev = np.zeros([total_peaks_found + 1, total_peaks_found + 1])
+            matrix_distance, matrix_std_dev, peak_distances, np_to_binding_distances = calculate_distance_matrices(
+                cm_binding_sites_x, cm_binding_sites_y, x_avg_NP, y_avg_NP, 
+                cm_std_dev_binding_sites_x, cm_std_dev_binding_sites_y, NP_flag
+            )
             
-            # NP to binding sites distances
             if NP_flag and peaks_flag:
-                # Vectorized distance calculation
-                np_to_binding_distances = np.sqrt(
-                    (cm_binding_sites_x - x_avg_NP)**2 + 
-                    (cm_binding_sites_y - y_avg_NP)**2) * 1e3
-                
-                matrix_distance[0, 1:] = np_to_binding_distances
-                matrix_distance[1:, 0] = np_to_binding_distances
-                matrix_std_dev[0, 0] = max(x_std_dev_NP, y_std_dev_NP) * 1e3
                 positions_concat_NP = np.append(positions_concat_NP, np_to_binding_distances)
             
-            # ================ CALCULATE BINDING SITE DISTANCES ================
-            # Binding site to binding site distances
-            peak_distances = np.array([])
-            for j in range(total_peaks_found):
-                x_binding_row = cm_binding_sites_x[j]
-                y_binding_row = cm_binding_sites_y[j]
-                matrix_std_dev[j + 1, j + 1] = max(
-                    cm_std_dev_binding_sites_x[j], cm_std_dev_binding_sites_y[j]) * 1e3
-                
-                for k in range(j + 1, total_peaks_found):
-                    x_binding_col = cm_binding_sites_x[k]
-                    y_binding_col = cm_binding_sites_y[k]
-                    distance_between_locs_CM = np.sqrt(
-                        (x_binding_col - x_binding_row)**2 + 
-                        (y_binding_col - y_binding_row)**2) * 1e3
-                    
-                    matrix_distance[j + 1, k + 1] = distance_between_locs_CM
-                    matrix_distance[k + 1, j + 1] = distance_between_locs_CM
-                    peak_distances = np.append(peak_distances, distance_between_locs_CM)
-                    positions_concat_origami = np.append(positions_concat_origami, distance_between_locs_CM)
+            positions_concat_origami = np.append(positions_concat_origami, peak_distances)
             
             # ================ LABEL BINDING SITES ================
             # Assigning peak labels using distances
@@ -401,65 +369,14 @@ def process_dat_files(number_of_frames, exp_time, working_folder,
         
         # ================ GENERATE PICK PLOTS ================
         if plot_flag:
-            # Plot when the pick was bright vs time
-            plt.figure()
-            plt.step(bin_centers_minutes, locs_of_picked_vs_time[i,:], where='mid', label=f'Pick {i:04d}')
-            plt.xlabel('Time (min)')
-            plt.ylabel('Locs')
-            plt.ylim([0, 80])
-            ax = plt.gca()
-            ax.axvline(x=10, ymin=0, ymax=1, color='k', linewidth='2', linestyle='--')
-            ax.set_title(f'Number of locs per pick vs time. Bin size {bin_size*0.1/60:.1f} min')
-            aux_folder = manage_save_directory(figures_per_pick_folder, 'locs_vs_time_per_pick')
-            figure_name = f'locs_per_pick_vs_time_pick_{i:02d}'
-            figure_path = os.path.join(aux_folder, f'{figure_name}.png')
-            plt.savefig(figure_path, dpi=100, bbox_inches='tight')
-            plt.close()
+            plot_pick_time_series(bin_centers_minutes, locs_of_picked_vs_time[i,:], i, figures_per_pick_folder, bin_size)
             
             # ================ PLOT SCATTER WITH NP ================
             if peaks_flag:
-                # RAW scatter plot
-                plt.figure(100)
-                plt.scatter(x_position_of_picked, y_position_of_picked, color='C0', label='Fluorophore Emission', s=0.5)
-                
-                if NP_flag:
-                    plt.scatter(x_position_of_picked_NP, y_position_of_picked_NP, color='C1', s=0.5, alpha=0.2)
-                    plt.scatter(x_avg_NP, y_avg_NP, color='C1', label='NP Scattering', s=0.5, alpha=1)
-                    plt.plot(x_avg_NP, y_avg_NP, 'x', color='k', label='Center of NP')
-                    plt.legend(loc='upper left')
-                
-                plt.ylabel(r'y ($\mu$m)')
-                plt.xlabel(r'x ($\mu$m)')
-                plt.xlim(left=0)
-                plt.ylim(bottom=0)
-                plt.axis('square')
-                ax = plt.gca()
-                ax.set_title(f'Position of locs per pick. Pick {i:02d}')
-                aux_folder = manage_save_directory(figures_per_pick_folder, 'scatter_plots')
-                figure_name = f'xy_pick_scatter_NP_and_PAINT_{i:02d}'
-                figure_path = os.path.join(aux_folder, f'{figure_name}.png')
-                plt.savefig(figure_path, dpi=300, bbox_inches='tight')
-                plt.close()
-                
-                # ================ PLOT SCATTER WITH PAINT POINTS ================
-                plt.figure(2)
-                plt.plot(x_position_of_picked, y_position_of_picked, '.', color='C0', label='PAINT', linewidth=0.5)
-                
-                if NP_flag:
-                    plt.plot(x_avg_NP, y_avg_NP, 'o', markersize=10, markerfacecolor='C1', 
-                            markeredgecolor='k', label='NP')
-                    plt.legend(loc='upper left')
-                
-                plt.ylabel(r'y ($\mu$m)')
-                plt.xlabel(r'x ($\mu$m)')
-                plt.axis('square')
-                ax = plt.gca()
-                ax.set_title(f'Position of locs per pick. Pick {i:02d}')
-                aux_folder = manage_save_directory(figures_per_pick_folder, 'scatter_plots')
-                figure_name = f'xy_pick_scatter_PAINT_{i:02d}'
-                figure_path = os.path.join(aux_folder, f'{figure_name}.png')
-                plt.savefig(figure_path, dpi=300, bbox_inches='tight')
-                plt.close()
+                x_np_data = x_position_of_picked_NP if NP_flag else None
+                y_np_data = y_position_of_picked_NP if NP_flag else None
+                plot_scatter_with_np(x_position_of_picked, y_position_of_picked, x_np_data, y_np_data, 
+                                   x_avg_NP, y_avg_NP, NP_flag, i, figures_per_pick_folder)
                 
                 # ================ PLOT FINE 2D IMAGE ================
                 plt.figure(3)
